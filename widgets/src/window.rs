@@ -1,5 +1,6 @@
 #[cfg(feature = "voice")]
 use crate::voice_wave::VoiceWaveWidgetExt;
+
 use crate::{
     desktop_button::DesktopButtonWidgetExt,
     gauss_view::{
@@ -896,7 +897,7 @@ impl Window {
         }
     }
 
-    fn ensure_initialized(&mut self, cx: &mut Cx) {
+    fn ensure_initialized(&mut self, cx: &mut Cx) -> bool {
         // If the inputs that drive caption layout changed without a platform WindowGeomChange
         // (e.g. a live/DSL reload toggling the caption bar or changing its height), the cached
         // WindowDragQuery geometry is stale — drop it so the next hit-test recomputes.
@@ -909,7 +910,6 @@ impl Window {
             self.caption_query_sig = Some(caption_sig);
             self.drag_query_cache = None;
         }
-
         self.sync_caption_bar_state(cx);
         self.sync_caption_bar_height(cx);
         self.sync_caption_title(cx);
@@ -917,7 +917,7 @@ impl Window {
         self.sync_system_bar_appearance(cx);
 
         if self.initialized {
-            return;
+            return false;
         }
         self.initialized = true;
 
@@ -939,13 +939,15 @@ impl Window {
         if self.demo {
             self.demo_next_frame = cx.new_next_frame();
         }
+
+        true
     }
 
     pub fn begin(&mut self, cx: &mut Cx2d) -> Redrawing {
-        self.ensure_initialized(cx);
+        let initialized = self.ensure_initialized(cx);
 
         let will_redraw = cx.will_redraw(&mut self.main_draw_list, Walk::default());
-        if !will_redraw {
+        if !initialized && !will_redraw {
             return Redrawing::no();
         }
 

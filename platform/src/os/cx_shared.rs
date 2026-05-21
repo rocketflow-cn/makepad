@@ -119,6 +119,38 @@ impl Cx {
         self.demo_time_repaint = false;
     }
 
+    pub(crate) fn clear_window_pass_dirty(&mut self, window_id: crate::window::WindowId) {
+        let Some(root_pass_id) = self.windows[window_id].main_pass_id else {
+            return;
+        };
+
+        let max_depth = self.passes.id_iter().count();
+        for draw_pass_id in self.passes.id_iter() {
+            let mut pass_id_walk = draw_pass_id;
+            for _ in 0..max_depth {
+                if pass_id_walk == root_pass_id {
+                    self.passes[draw_pass_id].paint_dirty = false;
+                    break;
+                }
+
+                match self.passes[pass_id_walk].parent {
+                    CxDrawPassParent::DrawPass(parent_pass_id) => {
+                        pass_id_walk = parent_pass_id;
+                    }
+                    CxDrawPassParent::Window(parent_window_id) => {
+                        if parent_window_id == window_id {
+                            self.passes[draw_pass_id].paint_dirty = false;
+                        }
+                        break;
+                    }
+                    CxDrawPassParent::Xr | CxDrawPassParent::None => {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     pub(crate) fn need_redrawing(&self) -> bool {
         self.new_draw_event.will_redraw()
     }
