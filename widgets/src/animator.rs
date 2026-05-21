@@ -321,6 +321,13 @@ impl ScriptHook for Animator {
         let obj_ref = vm.bx.heap.new_object_ref(obj);
         self.vm_id = vm.cx_mut().script_ref_vm_id(&obj_ref);
 
+        if apply.is_live_edit_reload() {
+            self.groups.clear();
+            self.current_states.clear();
+            self.tracks.clear();
+            self.state_object = None;
+        }
+
         let mut process_map = |vm: &mut ScriptVm, map: &mut ScriptObjectMap| {
             for (key, map_value) in map.iter() {
                 if let Some(group_id) = key.as_id() {
