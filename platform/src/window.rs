@@ -531,6 +531,18 @@ impl WindowHandle {
         cx.push_unique_platform_op(CxOsOp::SetTopmost(self.window_id(), set_topmost));
     }
 
+    /// Sets the top-left position of this window's native chrome button group.
+    ///
+    /// On macOS this moves the traffic-light buttons. On platforms where the
+    /// chrome buttons are not native or not movable, the platform backend may
+    /// ignore the operation.
+    pub fn set_window_chrome_buttons_position(&mut self, cx: &mut Cx, position: Vec2d) {
+        cx.push_unique_platform_op(CxOsOp::SetWindowChromeButtonsPosition(
+            self.window_id(),
+            position,
+        ));
+    }
+
     pub fn set_window_visuals(&mut self, cx: &mut Cx, visuals: WindowVisuals) {
         let visuals = visuals.normalized();
         let window_id = self.window_id();

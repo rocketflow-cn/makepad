@@ -25,8 +25,8 @@ use {
         makepad_script::value::ScriptHandle,
         shared_bytes::SharedBytes,
         texture::{Texture, TextureId},
-        window::{CxWindow, WindowId},
         window::WindowVisuals,
+        window::{CxWindow, WindowId},
     },
     std::{
         any::{Any, TypeId},
@@ -257,6 +257,7 @@ pub enum CxOsOp {
     HideWindow(WindowId),
     HideWindowButtons(WindowId),
     ShowWindowButtons(WindowId),
+    SetWindowChromeButtonsPosition(WindowId, Vec2d),
     SetTopmost(WindowId, bool),
     SetWindowVisuals(WindowId, WindowVisuals),
     ShowInDock(bool),
@@ -421,6 +422,9 @@ impl std::fmt::Debug for CxOsOp {
             Self::HideWindow(..) => write!(f, "HideWindow"),
             Self::HideWindowButtons(..) => write!(f, "HideWindowButtons"),
             Self::ShowWindowButtons(..) => write!(f, "ShowWindowButtons"),
+            Self::SetWindowChromeButtonsPosition(..) => {
+                write!(f, "SetWindowChromeButtonsPosition")
+            }
             Self::SetTopmost(..) => write!(f, "SetTopmost"),
             Self::SetWindowVisuals(..) => write!(f, "SetWindowVisuals"),
             Self::ShowInDock(..) => write!(f, "ShowInDock"),
@@ -956,11 +960,7 @@ impl Cx {
     /// physically fixed: inner/outer size, safe-area insets, and native chrome
     /// button bounds. The resulting synthetic `WindowGeomChange` is queued so
     /// this can be called from inside normal event/action handlers.
-    pub fn set_window_dpi_override(
-        &mut self,
-        window_id: WindowId,
-        dpi_override: Option<f64>,
-    ) {
+    pub fn set_window_dpi_override(&mut self, window_id: WindowId, dpi_override: Option<f64>) {
         let dpi_override = dpi_override.and_then(CxWindow::valid_dpi_factor);
         let window = &mut self.windows[window_id];
         let current_dpi = window.effective_dpi_factor();

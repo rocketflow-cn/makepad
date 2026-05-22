@@ -634,7 +634,9 @@ impl Cx {
                     // next NSEvent — the symptom being a Ctrl+C that runs
                     // the user's `QuitRequested` / `Shutdown` handlers but
                     // never actually exits.
-                    if let EventFlow::Exit = self.cocoa_event_callback(MacosEvent::Paint, metal_cx, metal_windows) {
+                    if let EventFlow::Exit =
+                        self.cocoa_event_callback(MacosEvent::Paint, metal_cx, metal_windows)
+                    {
                         return EventFlow::Exit;
                     }
                     let paint_ms = paint_t.map(|t| t.elapsed().as_secs_f64() * 1000.0);
@@ -1121,6 +1123,17 @@ impl Cx {
                         metal_windows.iter_mut().find(|w| w.window_id == window_id)
                     {
                         metal_window.cocoa_window.set_window_buttons_visible(true);
+                    }
+                }
+                CxOsOp::SetWindowChromeButtonsPosition(window_id, position) => {
+                    if let Some(metal_window) =
+                        metal_windows.iter_mut().find(|w| w.window_id == window_id)
+                    {
+                        metal_window
+                            .cocoa_window
+                            .set_traffic_lights_position(position);
+                        metal_window.window_geom = metal_window.cocoa_window.get_window_geom();
+                        self.windows[window_id].window_geom = metal_window.window_geom.clone();
                     }
                 }
                 CxOsOp::SetTopmost(window_id, is_topmost) => {

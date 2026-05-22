@@ -530,6 +530,65 @@ impl MacosWindow {
         }
     }
 
+    /// Moves the native macOS traffic-light button group to a Makepad-space
+    /// top-left position. The relative spacing between close / minimize / zoom
+    /// is preserved.
+    pub fn set_traffic_lights_position(&mut self, position: Vec2d) {
+        unsafe {
+            let close: ObjcId = msg_send![self.window, standardWindowButton: 0u64];
+            let miniaturize: ObjcId = msg_send![self.window, standardWindowButton: 1u64];
+            let zoom: ObjcId = msg_send![self.window, standardWindowButton: 2u64];
+            if close.is_null() || miniaturize.is_null() || zoom.is_null() {
+                return;
+            }
+
+            let content_view: ObjcId = msg_send![self.window, contentView];
+            let content_frame: NSRect = msg_send![content_view, frame];
+            let h = content_frame.size.height;
+
+            let close_superview: ObjcId = msg_send![close, superview];
+            let close_frame: NSRect = msg_send![close, frame];
+            let close_frame_in_content: NSRect = msg_send![
+                content_view,
+                convertRect: close_frame
+                fromView: close_superview
+            ];
+            let current_left = close_frame_in_content.origin.x;
+            let current_top =
+                h - (close_frame_in_content.origin.y + close_frame_in_content.size.height);
+
+            for button in [close, miniaturize, zoom] {
+                let superview: ObjcId = msg_send![button, superview];
+                if superview.is_null() {
+                    continue;
+                }
+                let frame: NSRect = msg_send![button, frame];
+                let frame_in_content: NSRect = msg_send![
+                    content_view,
+                    convertRect: frame
+                    fromView: superview
+                ];
+                let offset_x = frame_in_content.origin.x - current_left;
+                let offset_y =
+                    (h - (frame_in_content.origin.y + frame_in_content.size.height)) - current_top;
+                let target_top = position.y + offset_y;
+                let target_content_rect = NSRect {
+                    origin: NSPoint {
+                        x: position.x + offset_x,
+                        y: h - target_top - frame_in_content.size.height,
+                    },
+                    size: frame_in_content.size,
+                };
+                let target_rect: NSRect = msg_send![
+                    superview,
+                    convertRect: target_content_rect
+                    fromView: content_view
+                ];
+                let () = msg_send![button, setFrameOrigin: target_rect.origin];
+            }
+        }
+    }
+
     pub fn set_window_visuals(&mut self, visuals: WindowVisuals) {
         const NS_VIEW_WIDTH_SIZABLE: i64 = 1 << 1;
         const NS_VIEW_HEIGHT_SIZABLE: i64 = 1 << 4;

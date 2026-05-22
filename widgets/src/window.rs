@@ -1202,6 +1202,15 @@ impl WindowRef {
             inner.configure_macos_window(cx, config);
         }
     }
+
+    pub fn set_window_chrome_buttons_position(&self, cx: &mut Cx, position: Vec2d) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner
+                .window
+                .handle
+                .set_window_chrome_buttons_position(cx, position);
+        }
+    }
 }
 
 impl Widget for Window {
