@@ -154,17 +154,33 @@ script_mod! {
                     color_stroke_disabled = mix(self.border_color_disabled, self.border_color_2_disabled, dir)
                 }
 
-                let fill = color_fill
-                    .mix(color_fill_focus, self.focus)
-                    .mix(color_fill_hover, self.hover)
-                    .mix(color_fill_down, self.down)
-                    .mix(color_fill_disabled, self.disabled)
+                let fill = Pal.mix_color(
+                    Pal.mix_color(
+                        Pal.mix_color(
+                            Pal.mix_color(color_fill, color_fill_focus, self.focus),
+                            color_fill_hover,
+                            self.hover
+                        ),
+                        color_fill_down,
+                        self.down
+                    ),
+                    color_fill_disabled,
+                    self.disabled
+                )
 
-                let stroke = color_stroke
-                    .mix(color_stroke_focus, self.focus)
-                    .mix(color_stroke_hover, self.hover)
-                    .mix(color_stroke_down, self.down)
-                    .mix(color_stroke_disabled, self.disabled)
+                let stroke = Pal.mix_color(
+                    Pal.mix_color(
+                        Pal.mix_color(
+                            Pal.mix_color(color_stroke, color_stroke_focus, self.focus),
+                            color_stroke_hover,
+                            self.hover
+                        ),
+                        color_stroke_down,
+                        self.down
+                    ),
+                    color_stroke_disabled,
+                    self.disabled
+                )
 
                 sdf.fill_keep(fill)
                 sdf.stroke(stroke, self.border_size)

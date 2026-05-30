@@ -94,6 +94,15 @@ script_mod! {
                 return vec4(v.x * v.w, v.y * v.w, v.z * v.w, v.w);
             }
 
+            mix_color: fn(a: vec4, b: vec4, t: float) -> vec4 {
+                let alpha = mix(a.a, b.a, t);
+                if alpha <= 0.00001 {
+                    return vec4(0.);
+                }
+                let premul = mix(a.rgb * a.a, b.rgb * b.a, t);
+                return vec4(premul / alpha, alpha);
+            }
+
             iq: fn(t: float, a: vec3, b: vec3, c: vec3, d: vec3) -> vec3 {
                 return a + b * cos(6.28318 * (c * t + d));
             }

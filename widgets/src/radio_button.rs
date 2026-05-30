@@ -68,19 +68,41 @@ script_mod! {
                 // Draw background circle
                 sdf.circle(center_px.x, center_px.y, radius_px - self.border_size)
 
-                let color_fill = self.color
-                    .mix(self.color_focus, self.focus)
-                    .mix(self.color_active, self.active)
-                    .mix(self.color_hover, self.hover)
-                    .mix(self.color_down, self.down)
-                    .mix(self.color_disabled, self.disabled)
+                let color_fill = Pal.mix_color(
+                    Pal.mix_color(
+                        Pal.mix_color(
+                            Pal.mix_color(
+                                Pal.mix_color(self.color, self.color_focus, self.focus),
+                                self.color_active,
+                                self.active
+                            ),
+                            self.color_hover,
+                            self.hover
+                        ),
+                        self.color_down,
+                        self.down
+                    ),
+                    self.color_disabled,
+                    self.disabled
+                )
 
-                let color_stroke = self.border_color
-                    .mix(self.border_color_focus, self.focus)
-                    .mix(self.border_color_active, self.active)
-                    .mix(self.border_color_hover, self.hover)
-                    .mix(self.border_color_down, self.down)
-                    .mix(self.border_color_disabled, self.disabled)
+                let color_stroke = Pal.mix_color(
+                    Pal.mix_color(
+                        Pal.mix_color(
+                            Pal.mix_color(
+                                Pal.mix_color(self.border_color, self.border_color_focus, self.focus),
+                                self.border_color_active,
+                                self.active
+                            ),
+                            self.border_color_hover,
+                            self.hover
+                        ),
+                        self.border_color_down,
+                        self.down
+                    ),
+                    self.border_color_disabled,
+                    self.disabled
+                )
 
                 sdf.fill_keep(color_fill)
                 sdf.stroke(color_stroke, self.border_size)
@@ -256,16 +278,29 @@ script_mod! {
                     self.border_radius
                 )
 
-                let color_fill = self.color
-                    .mix(self.color_active, self.active)
-                    .mix(self.color_disabled, self.disabled)
+                let color_fill = Pal.mix_color(
+                    Pal.mix_color(self.color, self.color_active, self.active),
+                    self.color_disabled,
+                    self.disabled
+                )
 
-                let color_stroke = self.border_color
-                    .mix(self.border_color_focus, self.focus)
-                    .mix(self.border_color_active, self.active)
-                    .mix(self.border_color_hover, self.hover)
-                    .mix(self.border_color_down, self.down)
-                    .mix(self.border_color_disabled, self.disabled)
+                let color_stroke = Pal.mix_color(
+                    Pal.mix_color(
+                        Pal.mix_color(
+                            Pal.mix_color(
+                                Pal.mix_color(self.border_color, self.border_color_focus, self.focus),
+                                self.border_color_active,
+                                self.active
+                            ),
+                            self.border_color_hover,
+                            self.hover
+                        ),
+                        self.border_color_down,
+                        self.down
+                    ),
+                    self.border_color_disabled,
+                    self.disabled
+                )
 
                 sdf.fill_keep(color_fill)
                 sdf.stroke(color_stroke, self.border_size)
