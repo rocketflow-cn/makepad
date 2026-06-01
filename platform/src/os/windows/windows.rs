@@ -1231,8 +1231,11 @@ impl Cx {
                         size: bottom_right - top_left,
                     };
                     d3d11_windows.iter_mut().for_each(|w| {
-                        w.win32_window.set_ime_active(true);
+                        // Set the rect before re-enabling the IME context. Sogou
+                        // may open the first candidate window immediately after
+                        // context restore, before WM_IME_STARTCOMPOSITION.
                         w.win32_window.set_ime_rect(ime_rect);
+                        w.win32_window.set_ime_active(true);
                     });
                 }
                 CxOsOp::HideTextIME => {
