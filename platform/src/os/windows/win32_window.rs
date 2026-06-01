@@ -677,48 +677,7 @@ impl Win32Window {
                 }
             }
             WM_IME_STARTCOMPOSITION => {
-                let rect = window.ime_rect;
-                if rect.size.y > 0.0 {
-                    let himc = ImmGetContext(hwnd);
-                    if !himc.is_invalid() {
-                        let dpi_factor = window.get_dpi_factor();
-                        let left = (rect.pos.x * dpi_factor) as i32;
-                        let top = (rect.pos.y * dpi_factor) as i32;
-                        let right = ((rect.pos.x + rect.size.x) * dpi_factor) as i32;
-                        let bottom = ((rect.pos.y + rect.size.y) * dpi_factor) as i32;
-                        // Inflate the excluded line vertically (by a fraction of the
-                        // line height) so the candidate list keeps a gap from the
-                        // text rather than hugging it. Matches the macOS clearance.
-                        let clearance = (rect.size.y * dpi_factor * 0.6) as i32;
-                        // Anchor the (makepad-drawn) composition string at the caret.
-                        let caret = POINT { x: left, y: bottom };
-                        let _ = ImmSetCompositionWindow(
-                            himc,
-                            &COMPOSITIONFORM {
-                                dwStyle: CFS_POINT,
-                                ptCurrentPos: caret,
-                                rcArea: RECT::default(),
-                            },
-                        );
-                        // Exclude the whole text line so the candidate list pops up
-                        // directly above or below it instead of covering the text.
-                        let _ = ImmSetCandidateWindow(
-                            himc,
-                            &CANDIDATEFORM {
-                                dw_index: 0,
-                                dw_style: CFS_EXCLUDE,
-                                pt_current_pos: caret,
-                                rc_area: RECT {
-                                    left,
-                                    top: top - clearance,
-                                    right,
-                                    bottom: bottom + clearance,
-                                },
-                            },
-                        );
-                        let _ = ImmReleaseContext(hwnd, himc);
-                    }
-                }
+                window.update_ime_composition_window();
             }
             WM_IME_COMPOSITION => {
                 let himc = ImmGetContext(hwnd);
@@ -1089,6 +1048,53 @@ impl Win32Window {
 
     pub fn set_ime_rect(&mut self, rect: Rect) {
         self.ime_rect = rect;
+        self.update_ime_composition_window();
+    }
+
+    fn update_ime_composition_window(&mut self) {
+        // Keep the native IME composition window in sync as soon as the text
+        // cursor moves. Some Windows IMEs, including Sogou, query this rect
+        // before WM_IME_STARTCOMPOSITION on the first input after focus.
+        let rect = self.ime_rect;
+        if rect.size.y <= 0.0 {
+            return;
+        }
+        unsafe {
+            let himc = ImmGetContext(self.hwnd);
+            if himc.is_invalid() {
+                return;
+            }
+            let dpi_factor = self.get_dpi_factor();
+            let left = (rect.pos.x * dpi_factor) as i32;
+            let top = (rect.pos.y * dpi_factor) as i32;
+            let right = ((rect.pos.x + rect.size.x) * dpi_factor) as i32;
+            let bottom = ((rect.pos.y + rect.size.y) * dpi_factor) as i32;
+            let clearance = (rect.size.y * dpi_factor * 0.6) as i32;
+            let caret = POINT { x: left, y: bottom };
+            let _ = ImmSetCompositionWindow(
+                himc,
+                &COMPOSITIONFORM {
+                    dwStyle: CFS_POINT,
+                    ptCurrentPos: caret,
+                    rcArea: RECT::default(),
+                },
+            );
+            let _ = ImmSetCandidateWindow(
+                himc,
+                &CANDIDATEFORM {
+                    dw_index: 0,
+                    dw_style: CFS_EXCLUDE,
+                    pt_current_pos: caret,
+                    rc_area: RECT {
+                        left,
+                        top: top - clearance,
+                        right,
+                        bottom: bottom + clearance,
+                    },
+                },
+            );
+            let _ = ImmReleaseContext(self.hwnd, himc);
+        }
     }
 
     pub fn get_position(&self) -> Vec2d {
