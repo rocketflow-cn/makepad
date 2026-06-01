@@ -1724,6 +1724,10 @@ export class WasmWebBrowser extends WasmBridge {
         this.handlers.on_keydown = e => {
             let code = e.keyCode;
 
+            if (is_composing) {
+                return;
+            }
+
             //if (code == 91) {firefox_logo_key = true; e.preventDefault();}
             if (code == 18 || code == 17 || code == 16) e.preventDefault(); // alt
             if (code === 8 || code === 9) e.preventDefault() // backspace/tab

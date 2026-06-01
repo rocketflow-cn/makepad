@@ -2490,6 +2490,12 @@ impl Widget for TextInput {
             }
             Hit::KeyDown(KeyEvent {
                 key_code: KeyCode::ReturnKey | KeyCode::NumpadEnter,
+                ..
+            }) if self.has_composition() => {
+                self.reset_blink_timer(cx);
+            }
+            Hit::KeyDown(KeyEvent {
+                key_code: KeyCode::ReturnKey | KeyCode::NumpadEnter,
                 modifiers: mods @ KeyModifiers { shift: false, .. },
                 ..
             }) => {
@@ -2980,6 +2986,9 @@ impl Widget for TextInput {
                 }
             }
             Hit::ImeAction(event) => {
+                if self.has_composition() {
+                    return;
+                }
                 use crate::makepad_platform::event::ImeAction;
                 let mods = KeyModifiers::default();
                 match event.action {

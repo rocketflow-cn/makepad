@@ -3,7 +3,7 @@ use {
         cursor::MouseCursor,
         event::{
             finger::{MouseButton, ScrollPhase},
-            DragEvent, DragItem, DragResponse, DropEvent,
+            DragEvent, DragItem, DragResponse, DropEvent, KeyCode,
         },
         makepad_live_id::LiveId,
         makepad_math::Vec2d,
@@ -11,8 +11,8 @@ use {
             apple::apple_sys::*,
             apple_classes::get_apple_class_global,
             apple_util::{
-                get_event_key_modifier, get_event_mouse_button, load_mouse_cursor,
-                nsstring_to_string, superclass,
+                get_event_key_modifier, get_event_keycode, get_event_mouse_button,
+                load_mouse_cursor, nsstring_to_string, str_to_nsstring, superclass,
             },
             cx_native::EventFlow,
             macos::{
@@ -431,6 +431,8 @@ pub fn define_cocoa_view_class() -> *const Class {
         unsafe {
             let marked_text: ObjcId = *this.get_ivar("markedText");
             let _: () = msg_send![marked_text, release];
+            let ime_raw_text: ObjcId = *this.get_ivar("imeRawText");
+            let _: () = msg_send![ime_raw_text, release];
         }
     }
 
@@ -443,6 +445,9 @@ pub fn define_cocoa_view_class() -> *const Class {
                     NSMutableAttributedString::alloc(nil),
                 );
                 (*this).set_ivar("markedText", marked_text);
+                let ime_raw_text: ObjcId = msg_send![class!(NSMutableString), alloc];
+                let ime_raw_text: ObjcId = msg_send![ime_raw_text, init];
+                (*this).set_ivar("imeRawText", ime_raw_text);
             }
 
             #[cfg(target_os = "macos")]
@@ -627,7 +632,7 @@ pub fn define_cocoa_view_class() -> *const Class {
             if length > 0 {
                 NSRange {
                     location: 0,
-                    length: length - 1,
+                    length,
                 }
             } else {
                 NSRange {
@@ -652,6 +657,66 @@ pub fn define_cocoa_view_class() -> *const Class {
         }
     }
 
+    unsafe fn clear_marked_text(this: &Object) {
+        let marked_text: ObjcId = *this.get_ivar("markedText");
+        let mutable_string = marked_text.mutable_string();
+        let _: () = msg_send![
+            mutable_string,
+            setString: get_apple_class_global().const_empty_string.as_id()
+        ];
+        let input_context: ObjcId = msg_send![this, inputContext];
+        let _: () = msg_send![input_context, discardMarkedText];
+    }
+
+    unsafe fn ime_raw_text(this: &Object) -> String {
+        let raw_text: ObjcId = *this.get_ivar("imeRawText");
+        nsstring_to_string(raw_text)
+    }
+
+    unsafe fn set_ime_raw_text(this: &Object, text: &str) {
+        let raw_text: ObjcId = *this.get_ivar("imeRawText");
+        let text = str_to_nsstring(text);
+        let _: () = msg_send![raw_text, setString: text];
+    }
+
+    unsafe fn clear_ime_raw_text(this: &Object) {
+        set_ime_raw_text(this, "");
+    }
+
+    unsafe fn append_ime_raw_text(this: &Object, text: &str) {
+        let raw_text: ObjcId = *this.get_ivar("imeRawText");
+        let text = str_to_nsstring(text);
+        let _: () = msg_send![raw_text, appendString: text];
+    }
+
+    unsafe fn delete_last_ime_raw_char(this: &Object) {
+        let mut raw = ime_raw_text(this);
+        raw.pop();
+        set_ime_raw_text(this, &raw);
+    }
+
+    fn key_event_ime_raw_text(event: ObjcId) -> Option<String> {
+        unsafe {
+            let modifiers = get_event_key_modifier(event);
+            if modifiers.logo || modifiers.control || modifiers.alt {
+                return None;
+            }
+            let characters: ObjcId = msg_send![event, charactersIgnoringModifiers];
+            if characters == nil {
+                return None;
+            }
+            let text = nsstring_to_string(characters);
+            if text.is_empty()
+                || !text
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphabetic() || ch == '\'')
+            {
+                return None;
+            }
+            Some(text)
+        }
+    }
+
     extern "C" fn set_marked_text(
         this: &mut Object,
         _sel: Sel,
@@ -659,56 +724,66 @@ pub fn define_cocoa_view_class() -> *const Class {
         _selected_range: NSRange,
         _replacement_range: NSRange,
     ) {
-        unsafe {
-            let marked_text_ref: &mut ObjcId = this.get_mut_ivar("markedText");
-            let _: () = msg_send![(*marked_text_ref), release];
-            let marked_text = NSMutableAttributedString::alloc(nil);
-            let has_attr = msg_send![string, isKindOfClass: class!(NSAttributedString)];
-            if has_attr {
-                marked_text.init_with_attributed_string(string);
-            } else {
-                marked_text.init_with_string(string);
+        let (previous_len, marked_string) = unsafe {
+            let previous_marked_text: ObjcId = *this.get_ivar("markedText");
+            let previous_len = previous_marked_text.length();
+            if previous_marked_text.length() == 0 {
+                clear_ime_raw_text(this);
+            }
+            let marked_text = {
+                let marked_text_ref: &mut ObjcId = this.get_mut_ivar("markedText");
+                let _: () = msg_send![(*marked_text_ref), release];
+                let marked_text = NSMutableAttributedString::alloc(nil);
+                let has_attr = msg_send![string, isKindOfClass: class!(NSAttributedString)];
+                if has_attr {
+                    marked_text.init_with_attributed_string(string);
+                } else {
+                    marked_text.init_with_string(string);
+                };
+                *marked_text_ref = marked_text;
+                marked_text
             };
-            *marked_text_ref = marked_text;
+            let text_string: ObjcId = msg_send![marked_text, string];
+            (previous_len, nsstring_to_string(text_string))
+        };
 
-            // Echo the composition (marked) text into the focused TextInput so it
-            // renders inline as the user types with an IME (e.g. CJK pinyin).
-            // `replace_last = true` tells the widget to treat this as a composition
-            // preview, replacing the previous preview; an empty string clears it.
-            // Without this, nothing shows until the IME commits a final character.
-            // (iOS does the equivalent in its own `set_marked_text`.)
-            let characters: ObjcId = if has_attr {
-                msg_send![string, string]
-            } else {
-                string
-            };
-            let composition = nsstring_to_string(characters);
-            get_cocoa_window(this).send_text_input(composition, true);
+        let cw = get_cocoa_window(this);
+        if marked_string.is_empty() && previous_len > 0 {
+            unsafe {
+                let raw_text = ime_raw_text(this);
+                if raw_text.is_empty() {
+                    cw.send_text_input(String::new(), true);
+                } else {
+                    cw.send_text_input(raw_text, false);
+                }
+                clear_ime_raw_text(this);
+            }
+        } else {
+            let replace_last = !marked_string.is_empty();
+            cw.send_text_input(marked_string, replace_last);
+        }
+        unsafe {
+            let input_context: ObjcId = msg_send![this, inputContext];
+            let () = msg_send![input_context, invalidateCharacterCoordinates];
+            let () = msg_send![cw.view, setNeedsDisplay: YES];
         }
     }
 
-    // Clears the stored marked-text ivar and tells the input context the
-    // composition is finished. Does NOT notify the TextInput widget, so callers
-    // that have already updated/committed the widget can use it directly without
-    // emitting a second (and possibly destructive) text-input event.
-    unsafe fn clear_marked_text_ivar(this: &Object) {
-        let marked_text: ObjcId = *this.get_ivar("markedText");
-        let mutable_string = marked_text.mutable_string();
-        let _: () = msg_send![mutable_string, setString: get_apple_class_global().const_empty_string.as_id()];
-        let input_context: ObjcId = msg_send![this, inputContext];
-        let _: () = msg_send![input_context, discardMarkedText];
-    }
-
     extern "C" fn unmark_text(this: &Object, _sel: Sel) {
+        let cw = get_cocoa_window(this);
         unsafe {
-            // AppKit asks us to discard the in-progress composition (e.g. the user
-            // pressed Escape or the input session was interrupted). Remove the
-            // inline preview from the focused TextInput, then clear our state.
-            // (After a commit, `insert_text` clears the ivar directly instead of
-            // routing through here, so this only fires for genuine discards and is
-            // a no-op when the widget has no active composition.)
-            get_cocoa_window(this).send_text_input(String::new(), true);
-            clear_marked_text_ivar(this);
+            let marked_text: ObjcId = *this.get_ivar("markedText");
+            let had_marked_text = marked_text.length() > 0;
+            if had_marked_text {
+                let raw_text = ime_raw_text(this);
+                if raw_text.is_empty() {
+                    cw.send_text_input(String::new(), false);
+                } else {
+                    cw.send_text_input(raw_text, false);
+                }
+            }
+            clear_marked_text(this);
+            clear_ime_raw_text(this);
         }
     }
 
@@ -737,38 +812,27 @@ pub fn define_cocoa_view_class() -> *const Class {
         _actual_range: *mut c_void,
     ) -> NSRect {
         let cw = get_cocoa_window(this);
+
         let view: ObjcId = this as *const _ as *mut _;
-        unsafe {
-            let view_rect: NSRect = msg_send![view, frame];
-            // The render view is not flipped (AppKit default: y-up, origin at the
-            // view's bottom-left), while `ime_rect` is in makepad's y-down view
-            // points (origin top-left). Express the caret line box in the view's
-            // own y-up space, then let AppKit map it view -> window -> screen.
-            // Using AppKit's own conversion (rather than hand-rolled window-origin
-            // math with fudge offsets) keeps the rect exact, so the IME parks its
-            // candidate window flush above/below the line without covering it.
-            // Pad the reported line box vertically so the IME leaves a gap
-            // between its candidate window and the text rather than hugging the
-            // line. macOS parks the panel flush against an edge of this rect, so
-            // inflating it by `clearance` on both top and bottom pushes the panel
-            // that far away whichever side it lands on. Scaled to the line height
-            // so it tracks font size; tune via the multiplier.
-            let clearance = cw.ime_rect.size.y * 0.6;
-            let local = NSRect {
-                origin: NSPoint {
-                    x: cw.ime_rect.pos.x,
-                    y: view_rect.size.height
-                        - (cw.ime_rect.pos.y + cw.ime_rect.size.y)
-                        - clearance,
-                },
-                size: NSSize {
-                    width: cw.ime_rect.size.x,
-                    height: cw.ime_rect.size.y + 2.0 * clearance,
-                },
-            };
-            let in_window: NSRect = msg_send![view, convertRect: local toView: nil];
-            let in_screen: NSRect = msg_send![cw.window, convertRectToScreen: in_window];
-            in_screen
+        //let window_point = event.locationInWindow();
+        //et view_point = view.convertPoint_fromView_(window_point, nil);
+        let view_rect: NSRect = unsafe { msg_send![view, frame] };
+        //let window_rect: NSRect = unsafe {msg_send![cw.window, frame]};
+
+        let origin = cw.get_ime_origin();
+        //let shift_y = 20.0;
+        //let shift_x = 4.0;
+        //let bar = 0.0;// (window_rect.size.height - view_rect.size.height) as f32 - 5.;
+        NSRect {
+            origin: NSPoint {
+                x: (origin.x + cw.ime_spot.x),
+                y: (origin.y + (view_rect.size.height - cw.ime_spot.y)),
+            },
+            // as _, y as _),
+            size: NSSize {
+                width: 0.0,
+                height: 0.0,
+            },
         }
     }
 
@@ -787,14 +851,24 @@ pub fn define_cocoa_view_class() -> *const Class {
                 string
             };
             let string = nsstring_to_string(characters);
-            cw.send_text_input(string, replacement_range.length != 0);
+            let marked_text: ObjcId = *this.get_ivar("markedText");
+            let had_marked_text = marked_text.length() > 0;
+            let replace_last = if had_marked_text {
+                false
+            } else {
+                replacement_range.length != 0
+            };
+            if had_marked_text {
+                with_macos_app(|app| {
+                    app.suppress_next_return_for_ime_commit = true;
+                });
+            }
+            cw.send_text_input(string, replace_last);
+            clear_ime_raw_text(this);
             let input_context: ObjcId = msg_send![this, inputContext];
             let () = msg_send![input_context, invalidateCharacterCoordinates];
             let () = msg_send![cw.view, setNeedsDisplay: YES];
-            // The commit above already replaced any composition preview in the
-            // widget; just clear our marked-text state (don't route through
-            // `unmark_text`, which would emit a second text-input event).
-            clear_marked_text_ivar(this);
+            clear_marked_text(this);
         }
     }
 
@@ -808,8 +882,20 @@ pub fn define_cocoa_view_class() -> *const Class {
         // Otherwise, typing outside the TextInput still trigger the system IME.
         if cw.ime_active {
             unsafe {
+                let raw_text = key_event_ime_raw_text(event);
+                let key_code = get_event_keycode(event);
                 let input_context: ObjcId = msg_send![this, inputContext];
                 let () = msg_send![input_context, handleEvent: event];
+                let marked_text: ObjcId = *this.get_ivar("markedText");
+                if marked_text.length() > 0 {
+                    if key_code == Some(KeyCode::Backspace) {
+                        delete_last_ime_raw_char(this);
+                    } else if let Some(raw_text) = raw_text {
+                        append_ime_raw_text(this, &raw_text);
+                    }
+                } else {
+                    clear_ime_raw_text(this);
+                }
             }
         }
     }
@@ -1185,6 +1271,7 @@ pub fn define_cocoa_view_class() -> *const Class {
     }
     decl.add_ivar::<*mut c_void>("macos_window_ptr");
     decl.add_ivar::<ObjcId>("markedText");
+    decl.add_ivar::<ObjcId>("imeRawText");
     decl.add_protocol(&Protocol::get("NSTextInputClient").unwrap());
     decl.add_protocol(&Protocol::get("CALayerDelegate").unwrap());
     return decl.register();

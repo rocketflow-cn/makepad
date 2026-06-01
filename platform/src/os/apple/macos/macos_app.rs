@@ -135,6 +135,10 @@ pub struct MacosApp {
     /// Set by `send_command_event()` to avoid sending keyboard events
     /// for keyboard shortcuts that trigger a macOS menu command.
     pub(crate) menu_command_fired: bool,
+    /// Set by NSTextInputClient::insertText when an active IME composition
+    /// commits text during `sendEvent:`. The matching Return key event must
+    /// be consumed instead of submitted to the app.
+    pub(crate) suppress_next_return_for_ime_commit: bool,
 }
 
 impl MacosApp {
@@ -168,6 +172,7 @@ impl MacosApp {
                 terminating_from_app_delegate: false,
                 //current_ns_event: None,
                 menu_command_fired: false,
+                suppress_next_return_for_ime_commit: false,
             }
         }
     }
@@ -478,18 +483,25 @@ impl MacosApp {
                         _ => {}
                     }
                     let time = with_macos_app(|app: &mut MacosApp| app.time_now());
-                    // lets check if we have marked text
-                    if KeyCode::Backspace == key_code {
-                        // we have to check if we dont have any marked text in our windows
-                        if with_macos_app(|app| {
-                            for (_, view) in &app.cocoa_windows {
-                                let marked = unsafe { msg_send![*view, hasMarkedText] };
-                                if marked {
-                                    return true;
-                                }
-                            }
-                            false
-                        }) {
+                    let has_marked_text = with_macos_app(|app| {
+                        app.cocoa_windows.iter().any(|(_, view)| unsafe {
+                            let marked: BOOL = msg_send![*view, hasMarkedText];
+                            marked != NO
+                        })
+                    });
+                    let suppress_return_for_ime_commit = with_macos_app(|app| {
+                        let suppress = app.suppress_next_return_for_ime_commit;
+                        if suppress {
+                            app.suppress_next_return_for_ime_commit = false;
+                        }
+                        suppress
+                    });
+                    if key_code == KeyCode::ReturnKey && suppress_return_for_ime_commit {
+                        return;
+                    }
+                    // Let the IME consume editing/commit keys while marked text is active.
+                    if matches!(key_code, KeyCode::Backspace | KeyCode::ReturnKey) {
+                        if has_marked_text {
                             return;
                         }
                     }
