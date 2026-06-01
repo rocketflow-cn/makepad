@@ -13,12 +13,22 @@ pub fn load_native_cursor(cursor_name: &str) -> ObjcId {
 }
 
 pub fn load_undocumented_cursor(cursor_name: &str) -> ObjcId {
+    // SAFETY: NSCursor is a valid Objective-C class. The private selector is
+    // registered from a Rust string, checked with respondsToSelector before use,
+    // and nil cursor results are handled with a native arrow fallback.
     unsafe {
         let class = class!(NSCursor);
         let sel = Sel::register(cursor_name);
-        let sel: ObjcId = msg_send![class, respondsToSelector: sel];
+        let responds: BOOL = msg_send![class, respondsToSelector: sel];
+        if responds == NO {
+            return load_native_cursor("arrowCursor");
+        }
         let id: ObjcId = msg_send![class, performSelector: sel];
-        id
+        if id == nil {
+            load_native_cursor("arrowCursor")
+        } else {
+            id
+        }
     }
 }
 
