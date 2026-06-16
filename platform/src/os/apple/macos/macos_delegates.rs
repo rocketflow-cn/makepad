@@ -812,27 +812,24 @@ pub fn define_cocoa_view_class() -> *const Class {
         _actual_range: *mut c_void,
     ) -> NSRect {
         let cw = get_cocoa_window(this);
-
         let view: ObjcId = this as *const _ as *mut _;
-        //let window_point = event.locationInWindow();
-        //et view_point = view.convertPoint_fromView_(window_point, nil);
-        let view_rect: NSRect = unsafe { msg_send![view, frame] };
-        //let window_rect: NSRect = unsafe {msg_send![cw.window, frame]};
-
-        let origin = cw.get_ime_origin();
-        //let shift_y = 20.0;
-        //let shift_x = 4.0;
-        //let bar = 0.0;// (window_rect.size.height - view_rect.size.height) as f32 - 5.;
-        NSRect {
-            origin: NSPoint {
-                x: (origin.x + cw.ime_spot.x),
-                y: (origin.y + (view_rect.size.height - cw.ime_spot.y)),
-            },
-            // as _, y as _),
-            size: NSSize {
-                width: 0.0,
-                height: 0.0,
-            },
+        unsafe {
+            let view_rect: NSRect = msg_send![view, frame];
+            let clearance = cw.ime_rect.size.y * 0.6;
+            let local = NSRect {
+                origin: NSPoint {
+                    x: cw.ime_rect.pos.x,
+                    y: view_rect.size.height
+                        - (cw.ime_rect.pos.y + cw.ime_rect.size.y)
+                        - clearance,
+                },
+                size: NSSize {
+                    width: cw.ime_rect.size.x,
+                    height: cw.ime_rect.size.y + 2.0 * clearance,
+                },
+            };
+            let in_window: NSRect = msg_send![view, convertRect: local toView: nil];
+            msg_send![cw.window, convertRectToScreen: in_window]
         }
     }
 
