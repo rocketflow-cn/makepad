@@ -20,6 +20,7 @@ use {
         os::CxOs,
         perf_monitor::PerfMonitor,
         performance_stats::PerformanceStats,
+        makepad_math::Vec2d,
         script::script::CxScriptData,
         texture::{CxTexturePool, Texture, TextureFormat, TextureUpdated},
         thread::{SignalToUI, ToUIReceiver},
@@ -95,6 +96,7 @@ pub struct Cx {
 
     pub keyboard: CxKeyboard,
     pub fingers: CxFingers,
+    pub(crate) last_mouse_abs: Option<Vec2d>,
     pub(crate) ime_area: Area,
     pub keyboard_shift: f64,
     pub(crate) drag_drop: CxDragDrop,
@@ -453,6 +455,7 @@ impl Cx {
 
             keyboard: Default::default(),
             fingers: Default::default(),
+            last_mouse_abs: None,
             drag_drop: Default::default(),
             ime_area: Default::default(),
             keyboard_shift: 0.0,

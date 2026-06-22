@@ -888,6 +888,24 @@ impl Cx {
     }
 
     pub(crate) fn call_event_handler(&mut self, event: &Event) {
+        match event {
+            Event::MouseDown(event) => {
+                self.last_mouse_abs = Some(event.abs);
+            }
+            Event::MouseMove(event) => {
+                self.last_mouse_abs = Some(event.abs);
+            }
+            Event::MouseUp(event) => {
+                self.last_mouse_abs = Some(event.abs);
+            }
+            Event::Scroll(event) => {
+                self.last_mouse_abs = Some(event.abs);
+            }
+            Event::MouseLeave(_) => {
+                self.last_mouse_abs = None;
+            }
+            _ => {}
+        }
         if let Event::PermissionResult(result) = event {
             self.handle_camera_permission_result(result);
         }

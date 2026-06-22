@@ -501,6 +501,10 @@ impl Cx {
         self.in_draw_event
     }
 
+    pub fn last_mouse_abs(&self) -> Option<Vec2d> {
+        self.last_mouse_abs
+    }
+
     /// Requests a deferred `Event::ScriptReapply` on the next event-loop
     /// iteration. The captured app value is re-applied with
     /// `Apply::ScriptReapply` — no `script_mod` re-run, so runtime
