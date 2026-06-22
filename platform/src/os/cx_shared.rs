@@ -1568,6 +1568,24 @@ impl Cx {
         }
         let routed = self.sploded_route(event);
         let event = routed.as_ref().unwrap_or(event);
+        match event {
+            Event::MouseDown(event) => {
+                self.last_mouse_abs = Some(event.abs);
+            }
+            Event::MouseMove(event) => {
+                self.last_mouse_abs = Some(event.abs);
+            }
+            Event::MouseUp(event) => {
+                self.last_mouse_abs = Some(event.abs);
+            }
+            Event::Scroll(event) => {
+                self.last_mouse_abs = Some(event.abs);
+            }
+            Event::MouseLeave(_) => {
+                self.last_mouse_abs = None;
+            }
+            _ => {}
+        }
         if let Event::PermissionResult(result) = event {
             self.handle_camera_permission_result(result);
         }
