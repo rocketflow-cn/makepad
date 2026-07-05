@@ -1785,12 +1785,17 @@ impl MetalBuffer {
             return;
         }
         if let Some(inner) = self.inner.as_mut() {
-            if inner.len == len {
+            if len <= inner.len {
+                // SAFETY: `contents` returns a CPU-visible pointer for this shared Metal
+                // buffer. `inner.len` is the allocated byte capacity, and `len <= inner.len`
+                // guarantees the copy stays within the buffer.
                 let dst = unsafe {
                     let ptr: *mut std::ffi::c_void = msg_send![inner.buffer.as_id(), contents];
                     ptr
                 };
                 if !dst.is_null() {
+                    // SAFETY: `data.as_ptr()` is valid for `len` bytes and `dst` points to
+                    // a writable Metal buffer allocation with at least `len` bytes.
                     unsafe {
                         std::ptr::copy_nonoverlapping(
                             data.as_ptr() as *const u8,
@@ -1810,19 +1815,37 @@ impl MetalBuffer {
                 }
             }
         }
+        let capacity = len.checked_next_power_of_two().unwrap_or(len);
+        let buffer = RcObjcId::from_owned(
+            NonNull::new(unsafe {
+                msg_send![
+                    metal_cx.device,
+                    newBufferWithLength: capacity as u64
+                    options: nil
+                ]
+            })
+            .unwrap(),
+        );
+        // SAFETY: `newBufferWithLength` creates a CPU-visible Metal buffer with
+        // `capacity` bytes. `capacity >= len`, so copying `len` initialized bytes
+        // from `data` stays within both source and destination allocations.
+        unsafe {
+            let dst: *mut std::ffi::c_void = msg_send![buffer.as_id(), contents];
+            if !dst.is_null() {
+                std::ptr::copy_nonoverlapping(data.as_ptr() as *const u8, dst as *mut u8, len);
+            }
+        }
+        #[cfg(target_os = "macos")]
+        unsafe {
+            let range = NSRange {
+                location: 0,
+                length: len as u64,
+            };
+            let _: () = msg_send![buffer.as_id(), didModifyRange: range];
+        }
         self.inner = Some(MetalBufferInner {
-            buffer: RcObjcId::from_owned(
-                NonNull::new(unsafe {
-                    msg_send![
-                        metal_cx.device,
-                        newBufferWithBytes: data.as_ptr() as *const std::ffi::c_void
-                        length: len as u64
-                        options: nil
-                    ]
-                })
-                .unwrap(),
-            ),
-            len,
+            buffer,
+            len: capacity,
         });
     }
 }
