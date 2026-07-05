@@ -151,6 +151,7 @@ script_mod! {
     mod.widgets.Window = set_type_default() do mod.widgets.WindowBase{
         demo: false
         show_caption_bar: true
+        center_caption_label: true
         pass +: { clear_color: theme.color_bg_app }
         flow: Down
         nav_control: NavControl {}
@@ -313,6 +314,8 @@ pub struct Window {
     demo: bool,
     #[live]
     show_caption_bar: bool,
+    #[live]
+    center_caption_label: bool,
     #[rust]
     caption_has_content: Option<bool>,
     #[rust]
@@ -1087,6 +1090,12 @@ impl Window {
         // which is much cheaper than searching the widget tree for each one.
         let caption_bar = self.view.child(id!(caption_bar));
         let caption_label = caption_bar.child(id!(caption_label));
+        if !self.center_caption_label {
+            if let Some(mut view) = caption_label.borrow_mut::<View>() {
+                view.layout.padding.left = 0.0;
+            }
+            return;
+        }
         // An Overlay caption label lays out its title apart from the app's controls, so we still center that title.
         let overlay_align_x = caption_label.borrow::<View>()
             .and_then(|view| (view.layout.flow == Flow::Overlay).then_some(view.layout.align.x));
