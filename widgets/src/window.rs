@@ -133,6 +133,7 @@ script_mod! {
     mod.widgets.Window = set_type_default() do mod.widgets.WindowBase{
         demo: false
         show_caption_bar: true
+        center_caption_label: true
         pass +: { clear_color: theme.color_bg_app }
         flow: Down
         nav_control: NavControl {}
@@ -300,6 +301,8 @@ pub struct Window {
     demo: bool,
     #[live]
     show_caption_bar: bool,
+    #[live]
+    center_caption_label: bool,
     #[rust]
     demo_next_frame: NextFrame,
     #[live]
@@ -822,6 +825,14 @@ impl Window {
     fn sync_caption_centering(&mut self, cx: &mut Cx) {
         let bar_width = self.view(cx, ids!(caption_bar)).area().rect(cx).size.x;
         let buttons_width = self.view(cx, ids!(windows_buttons)).area().rect(cx).size.x;
+        if !self.center_caption_label {
+            let caption_label = self.view(cx, ids!(caption_label));
+            if let Some(mut inner) = caption_label.borrow_mut() {
+                inner.layout.padding.left = 0.0;
+            }
+            drop(caption_label);
+            return;
+        }
 
         if bar_width <= 0.0 {
             return; // No area info yet (first frame)
