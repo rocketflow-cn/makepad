@@ -1,4 +1,5 @@
 use crate::file_dialogs::{FileDialog, VirtualFileLimits};
+use makepad_studio_protocol::ScreenshotRequest;
 
 use {
     crate::{
@@ -664,6 +665,18 @@ impl Cx {
 impl Cx {
     pub fn in_draw_event(&self) -> bool {
         self.in_draw_event
+    }
+
+    /// 请求当前 framebuffer 在下一帧完成后执行 GPU screenshot readback。
+    /// 平台层将结果发送给 Studio screenshot response 通道。
+    pub fn request_screenshot(&mut self) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+        self.screenshot_requests.push(ScreenshotRequest {
+            request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed),
+            kind_id: 0,
+        });
+        self.redraw_all();
     }
 
     pub fn last_mouse_abs(&self) -> Option<Vec2d> {
