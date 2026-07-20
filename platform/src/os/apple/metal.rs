@@ -1110,6 +1110,15 @@ impl Cx {
                                 Vec::new()
                             }
                         };
+                        if let Some(path) = std::env::var_os("MAKEPAD_SCREENSHOT_PATH") {
+                            let path = std::path::PathBuf::from(path);
+                            if let Some(parent) = path.parent() {
+                                let _ = std::fs::create_dir_all(parent);
+                            }
+                            if let Err(error) = std::fs::write(&path, &png) {
+                                crate::error!("failed to write screenshot {}: {}", path.display(), error);
+                            }
+                        }
                         Cx::send_studio_screenshot_response(
                             sf.request_ids.clone(),
                             sf.width as _,
