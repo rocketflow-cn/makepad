@@ -593,6 +593,7 @@ impl Cx {
         let zbias_step = self.passes[pass_id].zbias_step;
 
         self.render_view(pass_id, draw_list_id, &mut zbias, zbias_step, d3d11_cx);
+        super::d3d11_screenshot::capture_requested_screenshot(self, d3d11_window, d3d11_cx);
         d3d11_window.present(vsync);
         if d3d11_window.first_draw {
             d3d11_window.win32_window.show();

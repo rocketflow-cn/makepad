@@ -23,7 +23,7 @@ use {
         makepad_math::Vec2d,
         script::script::CxScriptData,
         texture::{CxTexturePool, Texture, TextureFormat, TextureUpdated},
-        thread::{SignalToUI, ToUIReceiver},
+        thread::{SignalToUI, ToUIReceiver, ToUISender},
         uniform_buffer::CxUniformBufferPool,
         window::CxWindowPool,
     },
@@ -34,16 +34,21 @@ use {
     makepad_network::NetworkRuntime,
     makepad_script::*,
     makepad_studio_protocol::{
-        RunViewFrameData, RunViewFrameRequest, ScreenshotRequest, WidgetSnapshot,
+        RunViewFrameData, RunViewFrameRequest, ScreenshotRequest, ScreenshotResponse,
+        WidgetSnapshot,
     },
     std::{
         any::{Any, TypeId},
         cell::RefCell,
         collections::{HashMap, HashSet},
         rc::Rc,
-        sync::Arc,
+        sync::{Arc, Mutex},
     },
 };
+
+pub(crate) static SCREENSHOT_SENDER_GLOBAL: Mutex<Option<ToUISender<ScreenshotResponse>>> =
+    Mutex::new(None);
+pub(crate) const APPLICATION_SCREENSHOT_REQUEST_BIT: u64 = 1 << 63;
 
 //pub use makepad_shader_compiler::makepad_derive_live::*;
 //pub use makepad_shader_compiler::makepad_math::*;
@@ -167,6 +172,8 @@ pub struct Cx {
     pub perf_monitor: PerfMonitor,
     #[allow(unused)]
     pub(crate) screenshot_requests: Vec<ScreenshotRequest>,
+    pub(crate) screenshot_results: ToUIReceiver<ScreenshotResponse>,
+    pub(crate) pending_screenshot_results: Vec<ScreenshotResponse>,
     #[allow(dead_code)]
     pub(crate) run_view_frame_requests: Vec<RunViewFrameRequest>,
     #[allow(dead_code)]
@@ -396,6 +403,10 @@ impl Cx {
         if let Ok(mut sender) = ACTION_SENDER_GLOBAL.lock() {
             *sender = Some(action_sender);
         }
+        let screenshot_results = ToUIReceiver::default();
+        if let Ok(mut sender) = SCREENSHOT_SENDER_GLOBAL.lock() {
+            *sender = Some(screenshot_results.sender());
+        }
         // On platforms that use a shim backend (wasm, android), install it
         // before creating the NetworkRuntime so it picks up the real backend.
         #[cfg(target_arch = "wasm32")]
@@ -465,6 +476,8 @@ impl Cx {
             new_next_frames: Default::default(),
 
             screenshot_requests: Default::default(),
+            screenshot_results,
+            pending_screenshot_results: Default::default(),
             run_view_frame_requests: Default::default(),
             run_view_frame_results: Default::default(),
             run_view_frame_encode_in_flight: false,

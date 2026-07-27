@@ -1,7 +1,7 @@
 use {
     crate::{
         area::Area,
-        cx::Cx,
+        cx::{APPLICATION_SCREENSHOT_REQUEST_BIT, Cx, SCREENSHOT_SENDER_GLOBAL},
         cx_api::CxOsApi,
         draw_pass::{CxDrawPassParent, DrawPassId},
         event::{
@@ -28,7 +28,7 @@ static SCREENSHOT_FILE_SINKS: std::sync::OnceLock<
     std::sync::Mutex<HashMap<u64, std::path::PathBuf>>,
 > = std::sync::OnceLock::new();
 static SCREENSHOT_FILE_NEXT_ID: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(1 << 63);
+    std::sync::atomic::AtomicU64::new(1 << 62);
 
 fn screenshot_file_sinks() -> &'static std::sync::Mutex<HashMap<u64, std::path::PathBuf>> {
     SCREENSHOT_FILE_SINKS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
@@ -233,9 +233,10 @@ impl Cx {
         if request_ids.is_empty() {
             return;
         }
-        // Ids registered by capture_next_frame_to_file get written to disk;
-        // the rest (if any) still go to studio.
-        let mut studio_ids = Vec::new();
+        // File captures use bit 62 while application captures use bit 63.
+        // Route file requests locally, then deliver all remaining responses
+        // to their application consumer and Studio as appropriate.
+        let mut response_ids = Vec::new();
         {
             let mut sinks = screenshot_file_sinks().lock().unwrap();
             for id in request_ids {
@@ -251,19 +252,37 @@ impl Cx {
                         );
                     }
                 } else {
-                    studio_ids.push(id);
+                    response_ids.push(id);
                 }
             }
         }
-        if studio_ids.is_empty() {
+        if response_ids.is_empty() {
             return;
         }
-        Cx::send_studio_message(AppToStudio::Screenshot(ScreenshotResponse {
-            request_ids: studio_ids,
+        let response = ScreenshotResponse {
+            request_ids: response_ids,
             png,
             width,
             height,
-        }));
+        };
+        let application_request_ids = response
+            .request_ids
+            .iter()
+            .copied()
+            .filter(|request_id| request_id & APPLICATION_SCREENSHOT_REQUEST_BIT != 0)
+            .collect::<Vec<_>>();
+        if !application_request_ids.is_empty() {
+            let mut application_response = response.clone();
+            application_response.request_ids = application_request_ids;
+            if let Ok(sender) = SCREENSHOT_SENDER_GLOBAL.lock() {
+                if let Some(sender) = sender.as_ref() {
+                    if let Err(error) = sender.send(application_response) {
+                        crate::error!("send screenshot response to application failed: {}", error);
+                    }
+                }
+            }
+        }
+        Cx::send_studio_message(AppToStudio::Screenshot(response));
     }
 
     pub(crate) fn queue_studio_run_view_frame_request(&mut self, request: RunViewFrameRequest) {

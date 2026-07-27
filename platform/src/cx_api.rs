@@ -1,11 +1,11 @@
 use crate::file_dialogs::FileDialog;
-use makepad_studio_protocol::ScreenshotRequest;
+use makepad_studio_protocol::{ScreenshotRequest, ScreenshotResponse};
 
 use {
     crate::{
         area::Area,
         cursor::MouseCursor,
-        cx::{Cx, CxRef, OsType, XrCapabilities},
+        cx::{APPLICATION_SCREENSHOT_REQUEST_BIT, Cx, CxRef, OsType, XrCapabilities},
         display_context::SystemBarAppearance,
         draw_list::DrawListId,
         draw_pass::{CxDrawPassParent, CxDrawPassRect, DrawPassId},
@@ -503,15 +503,30 @@ impl Cx {
     }
 
     /// 请求当前 framebuffer 在下一帧完成后执行 GPU screenshot readback。
-    /// 平台层将结果发送给 Studio screenshot response 通道。
-    pub fn request_screenshot(&mut self) {
+    /// 平台层将结果发送给应用 screenshot response 通道，并继续转发给 Studio。
+    pub fn request_screenshot(&mut self) -> u64 {
         use std::sync::atomic::{AtomicU64, Ordering};
         static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+        let request_id = APPLICATION_SCREENSHOT_REQUEST_BIT
+            | (NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed)
+                & !APPLICATION_SCREENSHOT_REQUEST_BIT);
         self.screenshot_requests.push(ScreenshotRequest {
-            request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed),
+            request_id,
             kind_id: 0,
         });
         self.redraw_all();
+        request_id
+    }
+
+    /// 取得指定 GPU screenshot 请求的结果。
+    ///
+    /// 平台可能把同一 framebuffer 对应的多个请求合并成一个响应；取走当前请求后，
+    /// 其余请求仍保留在队列中，供对应调用方后续消费。
+    pub fn take_screenshot_response(&mut self, request_id: u64) -> Option<ScreenshotResponse> {
+        while let Ok(response) = self.screenshot_results.try_recv() {
+            self.pending_screenshot_results.push(response);
+        }
+        take_screenshot_response_by_id(&mut self.pending_screenshot_results, request_id)
     }
 
     pub fn last_mouse_abs(&self) -> Option<Vec2d> {
@@ -1725,6 +1740,55 @@ impl Cx {
 
     pub fn event_id(&self) -> u64 {
         self.event_id
+    }
+}
+
+fn take_screenshot_response_by_id(
+    pending: &mut Vec<ScreenshotResponse>,
+    request_id: u64,
+) -> Option<ScreenshotResponse> {
+    let response_index = pending
+        .iter()
+        .position(|response| response.request_ids.contains(&request_id))?;
+    let mut remaining = pending.remove(response_index);
+    remaining.request_ids.retain(|id| *id != request_id);
+    let response = ScreenshotResponse {
+        request_ids: vec![request_id],
+        png: remaining.png.clone(),
+        width: remaining.width,
+        height: remaining.height,
+    };
+    if !remaining.request_ids.is_empty() {
+        pending.insert(response_index, remaining);
+    }
+    Some(response)
+}
+
+#[cfg(test)]
+mod screenshot_response_tests {
+    use makepad_studio_protocol::ScreenshotResponse;
+
+    use super::take_screenshot_response_by_id;
+
+    #[test]
+    fn taking_one_request_preserves_other_ids_from_merged_response() {
+        let mut pending = vec![ScreenshotResponse {
+            request_ids: vec![7, 8],
+            png: vec![1, 2, 3],
+            width: 320,
+            height: 180,
+        }];
+
+        let first = take_screenshot_response_by_id(&mut pending, 7).unwrap();
+
+        assert_eq!(first.request_ids, vec![7]);
+        assert_eq!(first.png, vec![1, 2, 3]);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].request_ids, vec![8]);
+
+        let second = take_screenshot_response_by_id(&mut pending, 8).unwrap();
+        assert_eq!(second.request_ids, vec![8]);
+        assert!(pending.is_empty());
     }
 }
 
