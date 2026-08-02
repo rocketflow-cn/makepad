@@ -100,6 +100,41 @@ impl CodeDocument {
         })
     }
 
+    pub fn set_tokens(&self, tokens: Vec<Vec<Token>>) -> Result<(), InvalidTokenLayout> {
+        let text = self.0.history.borrow();
+        let lines = text.as_text().as_lines();
+        if tokens.len() != lines.len() {
+            return Err(InvalidTokenLayout::LineCount {
+                expected: lines.len(),
+                actual: tokens.len(),
+            });
+        }
+        for (line_index, (line, line_tokens)) in lines.iter().zip(&tokens).enumerate() {
+            let actual = line_tokens.iter().try_fold(0_usize, |length, token| {
+                if token.len == 0 {
+                    return Err(InvalidTokenLayout::EmptyToken { line_index });
+                }
+                length
+                    .checked_add(token.len)
+                    .ok_or(InvalidTokenLayout::LengthOverflow { line_index })
+            })?;
+            if actual != line.len() {
+                return Err(InvalidTokenLayout::LineLength {
+                    line_index,
+                    expected: line.len(),
+                    actual,
+                });
+            }
+        }
+        drop(text);
+        self.0.layout.borrow_mut().tokens = tokens;
+        Ok(())
+    }
+
+    pub fn set_decorations(&self, decorations: DecorationSet) {
+        *self.0.decorations.borrow_mut() = decorations;
+    }
+
     pub fn edit_selections(
         &self,
         session_id: SessionId,
@@ -678,6 +713,25 @@ impl CodeDocument {
             }
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InvalidTokenLayout {
+    LineCount {
+        expected: usize,
+        actual: usize,
+    },
+    EmptyToken {
+        line_index: usize,
+    },
+    LengthOverflow {
+        line_index: usize,
+    },
+    LineLength {
+        line_index: usize,
+        expected: usize,
+        actual: usize,
+    },
 }
 
 #[derive(Debug)]
