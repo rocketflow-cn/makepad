@@ -29,7 +29,8 @@ script_mod! {
         delimiter: #a
         delimiter_highlight: #f
         error_decoration: #f00
-        warning_decoration: #0f0
+        warning_decoration: #CCA700
+        information_decoration: #3794FF
 
         unknown: #C0C0C0
         branch_keyword: #C485BE
@@ -63,8 +64,8 @@ script_mod! {
         pixel: fn() {
             let transformed_pos = vec2(self.pos.x, self.pos.y + 0.03 * sin(self.pos.x * self.rect_size.x))
             let cx = Sdf2d.viewport(transformed_pos * self.rect_size)
-            cx.move_to(0.0, self.rect_size.y - 1.0)
-            cx.line_to(self.rect_size.x, self.rect_size.y - 1.0)
+            cx.move_to(0.0, self.rect_size.y - 1.0 - self.lane_offset)
+            cx.line_to(self.rect_size.x, self.rect_size.y - 1.0 - self.lane_offset)
             return cx.stroke(self.color, 0.8)
         }
     }
@@ -1790,25 +1791,25 @@ impl CodeEditor {
     }
 
     fn draw_decoration_layer(&mut self, cx: &mut Cx2d, session: &CodeSession) {
-        let mut active_decoration = None;
+        let mut active_decorations = Vec::new();
         let decorations = session.document().decorations();
         let mut decorations = decorations.iter();
-        while decorations.as_slice().first().map_or(false, |decoration| {
-            decoration.end().line_index < self.line_start
-        }) {
-            decorations.next().unwrap();
-        }
-        if decorations.as_slice().first().map_or(false, |decoration| {
+        while decorations.as_slice().first().is_some_and(|decoration| {
             decoration.start().line_index < self.line_start
         }) {
-            active_decoration = Some(ActiveDecoration {
-                decoration: *decorations.next().unwrap(),
-                start_x: 0.0,
-            });
+            let decoration = *decorations.next().unwrap();
+            if !decoration.is_empty() && decoration.end().line_index >= self.line_start {
+                let lane = first_available_decoration_lane(&active_decorations);
+                active_decorations.push(ActiveDecoration {
+                    decoration,
+                    start_x: 0.0,
+                    lane,
+                });
+            }
         }
         DrawDecorationLayer {
             code_editor: self,
-            active_decoration,
+            active_decorations,
             decorations,
         }
         .draw_decoration_layer(cx, session)
@@ -2103,7 +2104,7 @@ pub enum CodeEditorAction {
 
 struct DrawDecorationLayer<'a> {
     code_editor: &'a mut CodeEditor,
-    active_decoration: Option<ActiveDecoration>,
+    active_decorations: Vec<ActiveDecoration>,
     decorations: Iter<'a, Decoration>,
 }
 
@@ -2174,15 +2175,13 @@ impl<'a> DrawDecorationLayer<'a> {
                                 column_index += widget.column_count;
                             }
                             WrappedElement::Wrap => {
-                                if self.active_decoration.is_some() {
-                                    self.draw_decoration(
-                                        cx,
-                                        line,
-                                        origin_y,
-                                        row_index,
-                                        column_index,
-                                    );
-                                }
+                                self.draw_active_decorations(
+                                    cx,
+                                    line,
+                                    origin_y,
+                                    row_index,
+                                    column_index,
+                                );
                                 column_index = line.wrap_indent_column_count();
                                 row_index += 1;
                             }
@@ -2198,9 +2197,7 @@ impl<'a> DrawDecorationLayer<'a> {
                         row_index,
                         column_index,
                     );
-                    if self.active_decoration.is_some() {
-                        self.draw_decoration(cx, line, origin_y, row_index, column_index);
-                    }
+                    self.draw_active_decorations(cx, line, origin_y, row_index, column_index);
                     line_index += 1;
                     origin_y += line.height();
                 }
@@ -2232,28 +2229,40 @@ impl<'a> DrawDecorationLayer<'a> {
             line_index,
             byte_index,
         };
-        if self.active_decoration.as_ref().map_or(false, |decoration| {
-            decoration.decoration.end() == position && affinity == Affinity::Before
-        }) {
-            self.draw_decoration(cx, line, origin_y, row_index, column_index);
-            self.active_decoration = None;
+        if affinity == Affinity::Before {
+            for index in (0..self.active_decorations.len()).rev() {
+                if self.active_decorations[index].decoration.end() == position {
+                    self.draw_decoration(cx, line, origin_y, row_index, column_index, index);
+                    self.active_decorations.remove(index);
+                }
+            }
         }
-        if self
-            .decorations
-            .as_slice()
-            .first()
-            .map_or(false, |decoration| {
-                decoration.start() == position && affinity == Affinity::After
-            })
-        {
+        while self.decorations.as_slice().first().is_some_and(|decoration| {
+            decoration.start() == position && affinity == Affinity::After
+        }) {
             let decoration = *self.decorations.next().unwrap();
             if !decoration.is_empty() {
                 let (start_x, _) = line.grid_to_normalized_position(row_index, column_index);
-                self.active_decoration = Some(ActiveDecoration {
+                let lane = first_available_decoration_lane(&self.active_decorations);
+                self.active_decorations.push(ActiveDecoration {
                     decoration,
                     start_x,
+                    lane,
                 });
             }
+        }
+    }
+
+    fn draw_active_decorations(
+        &mut self,
+        cx: &mut Cx2d,
+        line: Line<'_>,
+        origin_y: f64,
+        row_index: usize,
+        column_index: usize,
+    ) {
+        for index in 0..self.active_decorations.len() {
+            self.draw_decoration(cx, line, origin_y, row_index, column_index, index);
         }
     }
 
@@ -2264,15 +2273,20 @@ impl<'a> DrawDecorationLayer<'a> {
         origin_y: f64,
         row_index: usize,
         column_index: usize,
+        active_index: usize,
     ) {
-        let start_x = mem::take(&mut self.active_decoration.as_mut().unwrap().start_x);
+        let active = &mut self.active_decorations[active_index];
+        let start_x = mem::take(&mut active.start_x);
+        let lane = active.lane;
+        let ty = active.decoration.ty;
         let (x, y) = line.grid_to_normalized_position(row_index, column_index);
-        self.code_editor.draw_decoration.color =
-            match self.active_decoration.as_mut().unwrap().decoration.ty {
-                DecorationType::Warning => self.code_editor.token_colors.warning_decoration,
-                DecorationType::Error => self.code_editor.token_colors.error_decoration,
-                DecorationType::DiffAdded | DecorationType::DiffRemoved | DecorationType::DiffChangedGutter => return,
-            };
+        self.code_editor.draw_decoration.color = match ty {
+            DecorationType::Information => self.code_editor.token_colors.information_decoration,
+            DecorationType::Warning => self.code_editor.token_colors.warning_decoration,
+            DecorationType::Error => self.code_editor.token_colors.error_decoration,
+            DecorationType::DiffAdded | DecorationType::DiffRemoved | DecorationType::DiffChangedGutter => return,
+        };
+        self.code_editor.draw_decoration.lane_offset = lane as f32 * 1.5;
 
         self.code_editor.draw_decoration.color.w *= self.code_editor.content_opacity;
         self.code_editor.draw_decoration.draw_abs(
@@ -2295,6 +2309,13 @@ impl<'a> DrawDecorationLayer<'a> {
 struct ActiveDecoration {
     decoration: Decoration,
     start_x: f64,
+    lane: usize,
+}
+
+fn first_available_decoration_lane(active: &[ActiveDecoration]) -> usize {
+    (0..)
+        .find(|lane| active.iter().all(|decoration| decoration.lane != *lane))
+        .unwrap()
 }
 
 struct DrawSelectionLayer<'a> {
@@ -2589,6 +2610,8 @@ struct TokenColors {
     error_decoration: Vec4f,
     #[live]
     warning_decoration: Vec4f,
+    #[live]
+    information_decoration: Vec4f,
 }
 
 #[derive(Script, ScriptHook)]
@@ -2607,6 +2630,8 @@ struct DrawDecoration {
     draw_super: DrawQuad,
     #[live]
     color: Vec4f,
+    #[live]
+    lane_offset: f32,
 }
 
 #[cfg(test)]
