@@ -7,6 +7,7 @@ use {
 pub enum DecorationType {
     Error,
     Warning,
+    Information,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -74,20 +75,21 @@ impl DecorationSet {
     }
 
     pub fn add_decoration(&mut self, decoration: Decoration) {
-        let index = match self
+        if let Some(index) = self
             .decorations
-            .binary_search_by_key(&decoration.start(), |decoration| decoration.start())
+            .iter()
+            .position(|existing| existing.id == decoration.id)
         {
-            Ok(index) => {
-                self.decorations[index] = decoration;
-                index
-            }
-            Err(index) => {
-                self.decorations.insert(index, decoration);
-                index
-            }
-        };
-        self.remove_overlapping_decorations(index);
+            self.decorations.remove(index);
+        }
+        let key = (decoration.start(), decoration.end(), decoration.id);
+        let index = self
+            .decorations
+            .binary_search_by_key(&key, |existing| {
+                (existing.start(), existing.end(), existing.id)
+            })
+            .unwrap_or_else(|index| index);
+        self.decorations.insert(index, decoration);
     }
 
     pub fn clear(&mut self) {
@@ -98,25 +100,9 @@ impl DecorationSet {
         for decoration in &mut self.decorations {
             *decoration = decoration.apply_edit(edit);
         }
-    }
-
-    fn remove_overlapping_decorations(&mut self, index: usize) {
-        let mut index = index;
-        while index > 0 {
-            let prev_index = index - 1;
-            if !self.decorations[prev_index].overlaps_with(self.decorations[index]) {
-                break;
-            }
-            self.decorations.remove(prev_index);
-            index -= 1;
-        }
-        while index + 1 < self.decorations.len() {
-            let next_index = index + 1;
-            if !self.decorations[index].overlaps_with(self.decorations[next_index]) {
-                break;
-            }
-            self.decorations.remove(next_index);
-        }
+        self.decorations.sort_by_key(|decoration| {
+            (decoration.start(), decoration.end(), decoration.id)
+        });
     }
 }
 
@@ -142,5 +128,59 @@ impl<'a> IntoIterator for &'a DecorationSet {
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn position(byte_index: usize) -> Position {
+        Position {
+            line_index: 0,
+            byte_index,
+        }
+    }
+
+    #[test]
+    fn overlapping_decorations_are_retained_in_stable_order() {
+        let mut decorations = DecorationSet::new();
+        decorations.add_decoration(Decoration::new(
+            2,
+            position(1),
+            position(5),
+            DecorationType::Warning,
+        ));
+        decorations.add_decoration(Decoration::new(
+            1,
+            position(1),
+            position(3),
+            DecorationType::Error,
+        ));
+
+        assert_eq!(decorations.len(), 2);
+        assert_eq!(decorations[0].id, 1);
+        assert_eq!(decorations[1].id, 2);
+    }
+
+    #[test]
+    fn adding_an_existing_id_replaces_and_reorders_it() {
+        let mut decorations = DecorationSet::new();
+        decorations.add_decoration(Decoration::new(
+            7,
+            position(1),
+            position(2),
+            DecorationType::Warning,
+        ));
+        decorations.add_decoration(Decoration::new(
+            7,
+            position(4),
+            position(6),
+            DecorationType::Information,
+        ));
+
+        assert_eq!(decorations.len(), 1);
+        assert_eq!(decorations[0].start(), position(4));
+        assert_eq!(decorations[0].ty, DecorationType::Information);
     }
 }
