@@ -3,7 +3,7 @@ use std::ffi::{c_void, CString};
 use crate::{
     egl_sys::{self, LibEgl},
     gl_sys::{self, LibGl},
-    Cx, DrawPassClearColor, DrawPassClearDepth, DrawPassId,
+    Cx, DrawPassClearColor, DrawPassClearDepth, DrawPassId, WindowId,
 };
 
 pub struct OpenglCx {
@@ -263,6 +263,7 @@ impl Cx {
     pub fn draw_pass_to_window(
         &mut self,
         draw_pass_id: DrawPassId,
+        window_id: WindowId,
         egl_surface: egl_sys::EGLSurface,
         pix_width: f64,
         pix_height: f64,
@@ -393,7 +394,7 @@ impl Cx {
         }
 
         // Studio screenshot readback: read framebuffer pixels before swap.
-        let request_ids = self.take_studio_screenshot_request_ids(0);
+        let request_ids = self.take_studio_screenshot_request_ids(window_id.id() as u32);
         if !request_ids.is_empty() {
             let w = pix_width.floor() as u32;
             let h = pix_height.floor() as u32;

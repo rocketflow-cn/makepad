@@ -491,7 +491,13 @@ impl X11Cx {
                         let pix_height =
                             window.window_geom.inner_size.y * window.window_geom.dpi_factor;
                         let mut cx = self.cx.borrow_mut();
-                        cx.draw_pass_to_window(*draw_pass_id, egl_surface, pix_width, pix_height);
+                        cx.draw_pass_to_window(
+                            *draw_pass_id,
+                            window_id,
+                            egl_surface,
+                            pix_width,
+                            pix_height,
+                        );
                     }
                 }
                 CxDrawPassParent::DrawPass(_) => {

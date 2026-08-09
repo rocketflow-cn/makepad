@@ -432,13 +432,13 @@ impl Cx {
                             self.draw_pass(
                                 *draw_pass_id,
                                 metal_cx,
-                                DrawPassMode::Resizing(drawable),
+                                DrawPassMode::Resizing(drawable, window_id.id()),
                             );
                         } else {
                             self.draw_pass(
                                 *draw_pass_id,
                                 metal_cx,
-                                DrawPassMode::Drawable(drawable),
+                                DrawPassMode::Drawable(drawable, window_id.id()),
                             );
                         }
                     }

@@ -960,13 +960,13 @@ impl Cx {
                     command_buffer,
                 );
             }
-            DrawPassMode::Drawable(drawable) => {
+            DrawPassMode::Drawable(drawable, kind_id) => {
                 let first_texture: ObjcId = unsafe { msg_send![drawable, texture] };
                 let () = unsafe { msg_send![command_buffer, presentDrawable: drawable] };
                 let screenshot = self.build_screenshot_struct(
                     metal_cx,
                     command_buffer,
-                    0,
+                    kind_id,
                     pass_width as usize,
                     pass_height as usize,
                     first_texture,
@@ -981,12 +981,12 @@ impl Cx {
                     command_buffer,
                 );
             }
-            DrawPassMode::Resizing(drawable) => {
+            DrawPassMode::Resizing(drawable, kind_id) => {
                 let first_texture: ObjcId = unsafe { msg_send![drawable, texture] };
                 let screenshot = self.build_screenshot_struct(
                     metal_cx,
                     command_buffer,
-                    0,
+                    kind_id,
                     pass_width as usize,
                     pass_height as usize,
                     first_texture,
@@ -1363,14 +1363,14 @@ pub enum DrawPassMode {
     StdinTexture,
     MTKView(ObjcId),
     StdinMain(PresentableDraw, usize),
-    Drawable(ObjcId),
-    Resizing(ObjcId),
+    Drawable(ObjcId, usize),
+    Resizing(ObjcId, usize),
 }
 
 impl DrawPassMode {
     fn is_drawable(&self) -> Option<ObjcId> {
         match self {
-            Self::Drawable(obj) | Self::Resizing(obj) => Some(*obj),
+            Self::Drawable(obj, _) | Self::Resizing(obj, _) => Some(*obj),
             Self::StdinMain(_, _) | Self::Texture | Self::StdinTexture | Self::MTKView(_) => None,
         }
     }

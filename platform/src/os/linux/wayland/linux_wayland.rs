@@ -1202,6 +1202,7 @@ impl WaylandCx {
                         }
                         presented = cx.draw_pass_to_window(
                             *draw_pass_id,
+                            window_id,
                             window.egl_surface,
                             pix_width,
                             pix_height,
@@ -1231,6 +1232,7 @@ impl WaylandCx {
                         }
                         presented = cx.draw_pass_to_window(
                             *draw_pass_id,
+                            window_id,
                             window.egl_surface,
                             pix_width,
                             pix_height,

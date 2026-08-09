@@ -570,23 +570,6 @@ impl Cx {
         // let time1 = Cx::profile_time_ns();
         let draw_list_id = self.passes[pass_id].main_draw_list_id.unwrap();
 
-        // Pace the CPU to the display refresh by waiting on this swap chain's
-        // frame-latency waitable before building the frame. The waitable is a
-        // counted semaphore replenished once per retired Present, so each wait
-        // must be paired with the vsync Present below; popups have no waitable
-        // and live-resize presents without vsync, so neither waits here. The
-        // finite timeout (roughly two refresh intervals) keeps the loop alive
-        // if the compositor stops signaling, e.g. while the window is
-        // occluded; on timeout we simply proceed with the frame.
-        if vsync
-            && !d3d11_window.is_in_resize
-            && !d3d11_window.frame_latency_waitable.is_invalid()
-        {
-            unsafe {
-                let _ = WaitForSingleObject(d3d11_window.frame_latency_waitable, 33);
-            }
-        }
-
         self.setup_pass_render_targets(pass_id, &d3d11_window.render_target_view, d3d11_cx);
 
         let mut zbias = 0.0;
@@ -595,6 +578,22 @@ impl Cx {
         self.render_view(pass_id, draw_list_id, &mut zbias, zbias_step, d3d11_cx);
         super::d3d11_screenshot::capture_requested_screenshot(self, d3d11_window, d3d11_cx);
         d3d11_window.present(vsync);
+
+        // Pace after Present so input arriving while the frame retires remains queued for the
+        // next event-loop pass. That pass coalesces mouse moves before building its draw lists,
+        // avoiding a full refresh interval of stale cursor state. The waitable is a counted
+        // semaphore replenished once per retired Present, so this wait is paired with the Present
+        // above. Popups have no waitable and live-resize presents without vsync, so neither waits
+        // here. The finite timeout keeps the loop alive if the compositor stops signaling, for
+        // example while the window is occluded.
+        if vsync
+            && !d3d11_window.is_in_resize
+            && !d3d11_window.frame_latency_waitable.is_invalid()
+        {
+            unsafe {
+                let _ = WaitForSingleObject(d3d11_window.frame_latency_waitable, 33);
+            }
+        }
         if d3d11_window.first_draw {
             d3d11_window.win32_window.show();
             d3d11_window.first_draw = false;

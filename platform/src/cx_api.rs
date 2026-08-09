@@ -505,6 +505,15 @@ impl Cx {
     /// 请求当前 framebuffer 在下一帧完成后执行 GPU screenshot readback。
     /// 平台层将结果发送给应用 screenshot response 通道，并继续转发给 Studio。
     pub fn request_screenshot(&mut self) -> u64 {
+        self.request_screenshot_for_kind(0)
+    }
+
+    /// 请求指定窗口的 framebuffer 在下一帧完成后执行 GPU screenshot readback。
+    pub fn request_window_screenshot(&mut self, window_id: WindowId) -> u64 {
+        self.request_screenshot_for_kind(window_id.id() as u32)
+    }
+
+    fn request_screenshot_for_kind(&mut self, kind_id: u32) -> u64 {
         use std::sync::atomic::{AtomicU64, Ordering};
         static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
         let request_id = APPLICATION_SCREENSHOT_REQUEST_BIT
@@ -512,7 +521,7 @@ impl Cx {
                 & !APPLICATION_SCREENSHOT_REQUEST_BIT);
         self.screenshot_requests.push(ScreenshotRequest {
             request_id,
-            kind_id: 0,
+            kind_id,
         });
         self.redraw_all();
         request_id
@@ -1768,7 +1777,27 @@ fn take_screenshot_response_by_id(
 mod screenshot_response_tests {
     use makepad_studio_protocol::ScreenshotResponse;
 
+    use crate::{Cx, WindowId};
+
     use super::take_screenshot_response_by_id;
+
+    #[test]
+    fn screenshot_requests_are_routed_to_their_window() {
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+
+        let main_request_id = cx.request_screenshot();
+        let window_request_id = cx.request_window_screenshot(WindowId(7, 1));
+
+        assert_eq!(
+            cx.take_studio_screenshot_request_ids(7),
+            vec![window_request_id]
+        );
+        assert_eq!(
+            cx.take_studio_screenshot_request_ids(0),
+            vec![main_request_id]
+        );
+        assert!(cx.take_studio_screenshot_request_ids(7).is_empty());
+    }
 
     #[test]
     fn taking_one_request_preserves_other_ids_from_merged_response() {
