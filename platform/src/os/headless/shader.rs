@@ -183,6 +183,13 @@ impl DrawVars {
 }
 
 impl Cx {
+    pub fn is_draw_shader_window_ready(&self, shader_id: DrawShaderId) -> bool {
+        let Some(os_shader_id) = self.draw_shaders.shaders[shader_id.index].os_shader_id else {
+            return false;
+        };
+        self.draw_shaders.os_shaders[os_shader_id].module.is_some()
+    }
+
     pub(crate) fn headless_compile_shaders(&mut self) {
         let compile_set = std::mem::take(&mut self.draw_shaders.compile_set);
         if self.os.no_draw {

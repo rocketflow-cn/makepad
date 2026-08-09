@@ -1,6 +1,18 @@
-use std::ffi::{c_void, CStr, CString};
+#[cfg(target_os = "macos")]
+use std::ffi::{CStr, c_void};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use std::ffi::CString;
+#[cfg(target_os = "windows")]
+use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::{FreeLibrary, HMODULE};
+#[cfg(target_os = "windows")]
+use windows::Win32::System::LibraryLoader::GetProcAddress;
+#[cfg(target_os = "windows")]
+use windows::core::PCSTR;
 
 pub struct HeadlessShaderJit {
     root_dir: PathBuf,
@@ -153,6 +165,11 @@ impl HeadlessLoadedModule {
                 last_dlerror()
             ));
         }
+        if std::mem::size_of::<F>() != std::mem::size_of_val(&ptr) {
+            return Err(format!(
+                "symbol `{symbol}` has an incompatible function pointer size"
+            ));
+        }
         Ok(unsafe { std::mem::transmute_copy::<*mut c_void, F>(&ptr) })
     }
 }
@@ -185,10 +202,76 @@ unsafe extern "C" {
     fn dlerror() -> *const std::os::raw::c_char;
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+pub struct HeadlessLoadedModule {
+    handle: HMODULE,
+}
+
+#[cfg(target_os = "windows")]
+impl HeadlessLoadedModule {
+    pub fn load(path: &Path) -> Result<Self, String> {
+        let mut wide_path = path.as_os_str().encode_wide().collect::<Vec<_>>();
+        wide_path.push(0);
+        let handle = unsafe { load_library_w(wide_path.as_ptr()) };
+        if handle.0.is_null() {
+            return Err(format!(
+                "failed to load headless shader module `{}`: {}",
+                path.display(),
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(Self { handle })
+    }
+
+    pub fn shader_version(&self) -> Result<u32, String> {
+        type VersionFn = unsafe extern "C" fn() -> u32;
+        let version_fn: VersionFn = self.symbol("makepad_headless_shader_version")?;
+        Ok(unsafe { version_fn() })
+    }
+
+    pub fn symbol<F: Sized>(&self, symbol: &str) -> Result<F, String> {
+        let name = CString::new(symbol).map_err(|_| format!("invalid symbol name `{symbol}`"))?;
+        let ptr = unsafe {
+            GetProcAddress(
+                self.handle,
+                PCSTR::from_raw(name.as_ptr().cast::<u8>()),
+            )
+        }
+        .ok_or_else(|| {
+            format!(
+                "symbol `{symbol}` missing in headless shader module: {}",
+                std::io::Error::last_os_error()
+            )
+        })?;
+        if std::mem::size_of::<F>() != std::mem::size_of_val(&ptr) {
+            return Err(format!(
+                "symbol `{symbol}` has an incompatible function pointer size"
+            ));
+        }
+        Ok(unsafe { std::mem::transmute_copy(&ptr) })
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for HeadlessLoadedModule {
+    fn drop(&mut self) {
+        if let Err(error) = unsafe { FreeLibrary(self.handle) } {
+            eprintln!("failed to unload headless shader module: {error}");
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    #[link_name = "LoadLibraryW"]
+    fn load_library_w(path: *const u16) -> HMODULE;
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub struct HeadlessLoadedModule;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 impl HeadlessLoadedModule {
     pub fn load(path: &Path) -> Result<Self, String> {
         Err(format!(
@@ -199,5 +282,11 @@ impl HeadlessLoadedModule {
 
     pub fn shader_version(&self) -> Result<u32, String> {
         Err("headless shader version lookup is only implemented on macOS for now".to_string())
+    }
+
+    pub fn symbol<F: Sized>(&self, symbol: &str) -> Result<F, String> {
+        Err(format!(
+            "headless shader symbol `{symbol}` lookup is not implemented on this platform"
+        ))
     }
 }

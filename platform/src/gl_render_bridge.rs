@@ -3,7 +3,7 @@ use std::ffi::c_void;
 #[cfg(any(
     target_os = "linux",
     target_os = "android",
-    target_os = "windows",
+    all(target_os = "windows", not(headless)),
     all(target_os = "macos", not(headless)),
     all(target_os = "ios", not(headless))
 ))]
@@ -11,7 +11,7 @@ use crate::cx::Cx;
 #[cfg(any(
     target_os = "linux",
     target_os = "android",
-    target_os = "windows",
+    all(target_os = "windows", not(headless)),
     all(target_os = "macos", not(headless)),
     all(target_os = "ios", not(headless))
 ))]
@@ -41,7 +41,7 @@ pub enum GlApi {
 pub struct GlRenderBridge {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     pub(crate) inner: crate::os::linux::opengl::EglRenderBridge,
-    #[cfg(target_os = "windows")]
+    #[cfg(all(target_os = "windows", not(headless)))]
     pub(crate) inner: crate::os::windows::angle::AngleRenderBridge,
     #[cfg(all(target_os = "macos", not(headless)))]
     pub(crate) inner: crate::os::apple::metal::CglRenderBridge,
@@ -52,7 +52,7 @@ pub struct GlRenderBridge {
 #[cfg(any(
     target_os = "linux",
     target_os = "android",
-    target_os = "windows",
+    all(target_os = "windows", not(headless)),
     all(target_os = "macos", not(headless)),
     all(target_os = "ios", not(headless))
 ))]
@@ -76,7 +76,7 @@ impl GlRenderBridge {
 #[cfg(not(any(
     target_os = "linux",
     target_os = "android",
-    target_os = "windows",
+    all(target_os = "windows", not(headless)),
     all(target_os = "macos", not(headless)),
     all(target_os = "ios", not(headless))
 )))]
@@ -93,7 +93,11 @@ impl GlRenderBridge {
 }
 
 // EGL platform accessors (Linux, Android, Windows)
-#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    all(target_os = "windows", not(headless))
+))]
 impl GlRenderBridge {
     pub fn egl_display(&self) -> *mut c_void {
         self.inner.egl_display()
@@ -282,7 +286,7 @@ impl Cx {
 }
 
 // Cx methods: Windows
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", not(headless)))]
 impl Cx {
     /// Create a GL rendering bridge via ANGLE on makepad's D3D11 device.
     pub fn create_gl_render_bridge(&mut self) -> GlRenderBridge {

@@ -163,7 +163,7 @@ impl Area {
                     if draw_list.redraw_id != list.redraw_id {
                         return false;
                     }
-                    return true;
+                    return list.rect_id < draw_list.rect_areas.len();
                 }
                 return false;
             }
@@ -241,7 +241,12 @@ impl Area {
             Area::Rect(ra) => {
                 // we need to clip this drawlist too
                 let draw_list = &cx.draw_lists[ra.draw_list_id];
-                let rect_area = &draw_list.rect_areas[ra.rect_id];
+                if draw_list.redraw_id != ra.redraw_id {
+                    return Rect::default();
+                }
+                let Some(rect_area) = draw_list.rect_areas.get(ra.rect_id) else {
+                    return Rect::default();
+                };
                 if draw_list.draw_list_has_clip {
                     let p3 = dvec2(
                         draw_list.draw_list_uniforms.view_clip.x as f64,
@@ -307,8 +312,10 @@ impl Area {
             Area::Rect(ra) => {
                 let draw_list = &cx.draw_lists[ra.draw_list_id];
                 if draw_list.redraw_id == ra.redraw_id {
-                    let rect_area = &draw_list.rect_areas[ra.rect_id];
-                    return rect_area.rect;
+                    return draw_list
+                        .rect_areas
+                        .get(ra.rect_id)
+                        .map_or_else(Rect::default, |rect_area| rect_area.rect);
                 }
                 Rect::default()
             }
@@ -344,7 +351,12 @@ impl Area {
             }
             Area::Rect(ra) => {
                 let draw_list = &cx.draw_lists[ra.draw_list_id];
-                let rect_area = &draw_list.rect_areas[ra.rect_id];
+                if draw_list.redraw_id != ra.redraw_id {
+                    return abs;
+                }
+                let Some(rect_area) = draw_list.rect_areas.get(ra.rect_id) else {
+                    return abs;
+                };
                 Vec2d {
                     x: abs.x - rect_area.rect.pos.x,
                     y: abs.y - rect_area.rect.pos.y,
@@ -404,7 +416,12 @@ impl Area {
             }
             Area::Rect(ra) => {
                 let draw_list = &mut cx.draw_lists[ra.draw_list_id];
-                let rect_area = &mut draw_list.rect_areas[ra.rect_id];
+                if draw_list.redraw_id != ra.redraw_id {
+                    return;
+                }
+                let Some(rect_area) = draw_list.rect_areas.get_mut(ra.rect_id) else {
+                    return;
+                };
                 rect_area.rect = *rect
             }
             _ => (),
@@ -513,4 +530,30 @@ impl Area {
         }
         None
     }*/
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::draw_list::DrawList;
+
+    #[test]
+    fn stale_rect_area_access_is_ignored() {
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        let draw_list = DrawList::new(&mut cx);
+        let draw_list_id = draw_list.id();
+        cx.draw_lists[draw_list_id].redraw_id = 1;
+        let stale_area = Area::Rect(RectArea {
+            draw_list_id,
+            rect_id: 74,
+            redraw_id: 1,
+        });
+        let abs = dvec2(12.0, 34.0);
+
+        assert_eq!(stale_area.clipped_rect(&cx), Rect::default());
+        assert_eq!(stale_area.rect(&cx), Rect::default());
+        assert_eq!(stale_area.abs_to_rel(&cx, abs), abs);
+        stale_area.set_rect(&mut cx, &Rect::default());
+        assert!(!stale_area.is_valid(&cx));
+    }
 }

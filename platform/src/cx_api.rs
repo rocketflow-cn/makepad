@@ -1853,9 +1853,14 @@ fn can_play_type_impl(_mime: &str) -> &'static str {
     ""
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", not(headless)))]
 fn can_play_type_impl(mime: &str) -> &'static str {
     crate::os::windows::windows_video_playback::WindowsVideoPlayer::can_play_type(mime)
+}
+
+#[cfg(all(target_os = "windows", headless))]
+fn can_play_type_impl(_mime: &str) -> &'static str {
+    ""
 }
 
 #[cfg(not(any(
