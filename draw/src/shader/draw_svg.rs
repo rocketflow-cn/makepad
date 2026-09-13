@@ -207,6 +207,9 @@ pub struct DrawSvg {
     pub has_animations: bool,
     #[live(true)]
     pub preserve_aspect: bool,
+    /// Fit the document viewport instead of cropping its authored whitespace.
+    #[live(false)]
+    pub preserve_viewport: bool,
     #[live(1.0)]
     pub scale: f64,
     #[deref]
@@ -215,6 +218,35 @@ pub struct DrawSvg {
     pub color: Vec4f,
     #[live(1.0)]
     pub opacity: f32,
+}
+
+fn svg_fit_bounds(
+    preserve_viewport: bool,
+    logical_size: (f32, f32),
+    content_bounds: (f32, f32, f32, f32),
+) -> (f32, f32, f32, f32) {
+    if preserve_viewport {
+        (0.0, 0.0, logical_size.0, logical_size.1)
+    } else {
+        content_bounds
+    }
+}
+
+#[cfg(test)]
+mod viewport_tests {
+    use super::svg_fit_bounds;
+
+    #[test]
+    fn viewport_fit_keeps_authored_asymmetric_whitespace() {
+        assert_eq!(svg_fit_bounds(true, (28.0, 20.0), (6.0, 3.0, 22.0, 15.0)),
+            (0.0, 0.0, 28.0, 20.0));
+    }
+
+    #[test]
+    fn default_fit_keeps_existing_content_crop() {
+        let content = (6.0, 3.0, 22.0, 15.0);
+        assert_eq!(svg_fit_bounds(false, (28.0, 20.0), content), content);
+    }
 }
 
 impl DrawSvg {
@@ -261,8 +293,9 @@ impl DrawSvg {
         let (lw, lh) = doc.logical_size();
 
         // Device-pixel scale (svg_scale * dpi) the AA fringe + tolerance below are sized against.
-        let cbw = self.content_bounds.2 - self.content_bounds.0;
-        let cbh = self.content_bounds.3 - self.content_bounds.1;
+        let bounds = svg_fit_bounds(self.preserve_viewport, (lw, lh), self.content_bounds);
+        let cbw = bounds.2 - bounds.0;
+        let cbh = bounds.3 - bounds.1;
         let dpi = cx.current_dpi_factor() as f32;
         let device_scale = if cbw > 0.0 && cbh > 0.0 {
             let tw = rect.size.x as f32;
@@ -351,7 +384,7 @@ impl DrawSvg {
         };
 
         // Compute GPU-side scale + offset from content bounds to target rect
-        let (bmin_x, bmin_y, bmax_x, bmax_y) = self.content_bounds;
+        let (bmin_x, bmin_y, bmax_x, bmax_y) = bounds;
         let bw = bmax_x - bmin_x;
         let bh = bmax_y - bmin_y;
 
@@ -422,8 +455,16 @@ impl DrawSvg {
     }
 
     fn resolve_walk(&self, walk: Walk) -> Walk {
-        let sw = self.content_size.x * self.scale;
-        let sh = self.content_size.y * self.scale;
+        let size = if self.preserve_viewport {
+            self.svg_doc.as_ref().map(|doc| {
+                let (width, height) = doc.logical_size();
+                dvec2(width as f64, height as f64)
+            }).unwrap_or(self.content_size)
+        } else {
+            self.content_size
+        };
+        let sw = size.x * self.scale;
+        let sh = size.y * self.scale;
         if sw <= 0.0 || sh <= 0.0 {
             return walk;
         }
