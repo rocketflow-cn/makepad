@@ -97,7 +97,7 @@ use {
                         WS_BORDER, WS_CAPTION, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_EX_ACCEPTFILES,
                         WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
                         WS_EX_WINDOWEDGE, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_THICKFRAME,
-                        WINDOW_EX_STYLE, WINDOW_STYLE,
+                        WINDOW_EX_STYLE, WINDOW_LONG_PTR_INDEX, WINDOW_STYLE,
                     },
                 },
             },
@@ -252,9 +252,47 @@ pub struct Win32Window {
     /// area rather than a decorated window pinned to the work area.
     pub chromeless_when_maximized: bool,
     ime_saved_himc: HIMC,
+    owner_taskbar_style: Option<isize>,
 }
 
 impl Win32Window {
+    /// Keep a top-level window above its owner without making it system-topmost.
+    pub fn set_owner(&mut self, owner: Option<HWND>) {
+        // SAFETY: Both handles belong to live top-level windows on the UI thread.
+        // GWLP_HWNDPARENT changes ownership; it does not turn this into a child window.
+        unsafe {
+            const GWLP_HWNDPARENT: WINDOW_LONG_PTR_INDEX = WINDOW_LONG_PTR_INDEX(-8);
+            let owner_handle = owner.map_or(0, |hwnd| hwnd.0 as isize);
+            let current_owner = GetWindowLongPtrW(self.hwnd, GWLP_HWNDPARENT);
+            let style = GetWindowLongPtrW(self.hwnd, GWL_EXSTYLE);
+            let taskbar_mask = (WS_EX_APPWINDOW.0 | WS_EX_TOOLWINDOW.0) as isize;
+            let updated_style = if owner.is_some() {
+                self.owner_taskbar_style.get_or_insert(style & taskbar_mask);
+                (style & !(WS_EX_APPWINDOW.0 as isize)) | WS_EX_TOOLWINDOW.0 as isize
+            } else if let Some(saved_style) = self.owner_taskbar_style.take() {
+                (style & !taskbar_mask) | saved_style
+            } else {
+                style
+            };
+            if current_owner == owner_handle && style == updated_style {
+                return;
+            }
+            SetWindowLongPtrW(self.hwnd, GWLP_HWNDPARENT, owner_handle);
+            SetWindowLongPtrW(self.hwnd, GWL_EXSTYLE, updated_style);
+            if let Err(error) = SetWindowPos(
+                self.hwnd,
+                None,
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+            ) {
+                crate::error!("SetWindowPos after changing window owner failed: {}", error);
+            }
+        }
+    }
+
     pub fn set_title(&self, title: &str) {
         let title = encode_wide(title);
         unsafe {
@@ -626,6 +664,7 @@ impl Win32Window {
             is_popup: false,
             chromeless_when_maximized: false,
             ime_saved_himc: HIMC::default(),
+            owner_taskbar_style: None,
         }
     }
 
@@ -698,6 +737,7 @@ impl Win32Window {
             is_popup: true,
             chromeless_when_maximized: false,
             ime_saved_himc: HIMC::default(),
+            owner_taskbar_style: None,
         }
     }
 

@@ -758,6 +758,13 @@ impl WindowHandle {
         cx.push_unique_platform_op(CxOsOp::SetTopmost(self.window_id(), set_topmost));
     }
 
+    /// Establish an owned top-level window (macOS/Windows), independent of system topmost.
+    pub fn set_owner(&mut self, cx: &mut Cx, owner: Option<WindowId>) {
+        if owner != Some(self.window_id()) {
+            cx.push_unique_platform_op(CxOsOp::SetWindowOwner(self.window_id(), owner));
+        }
+    }
+
     /// Windows only: a maximized window normally keeps a border/titlebar
     /// strip so its client area matches the monitor work area. Setting this
     /// drops that strip while maximized instead, so the window reads as a

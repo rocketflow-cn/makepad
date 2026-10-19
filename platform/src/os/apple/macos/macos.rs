@@ -1956,6 +1956,31 @@ impl Cx {
                         self.windows[window_id].window_geom = window.window_geom.clone();
                     }
                 }
+                CxOsOp::SetWindowOwner(window_id, owner_id) => {
+                    if owner_id == Some(window_id) {
+                        continue;
+                    }
+                    let owner = match owner_id {
+                        Some(id) => match metal_windows.iter().find(|w| w.window_id == id) {
+                            Some(window) => window.cocoa_window.window,
+                            None => {
+                                if self.defer_platform_op(CxOsOp::SetWindowOwner(window_id, owner_id)) {
+                                    continue;
+                                }
+                                break;
+                            }
+                        },
+                        None => nil,
+                    };
+                    if let Some(window) = metal_windows.iter_mut().find(|w| w.window_id == window_id) {
+                        window.cocoa_window.set_owner(owner);
+                    } else {
+                        if self.defer_platform_op(CxOsOp::SetWindowOwner(window_id, owner_id)) {
+                            continue;
+                        }
+                        break;
+                    }
+                }
                 CxOsOp::SetTopmost(window_id, is_topmost) => {
                     if metal_windows.is_empty() {
                         if self.defer_platform_op(CxOsOp::SetTopmost(window_id, is_topmost)) {

@@ -300,6 +300,8 @@ pub enum CxOsOp {
     ShowWindowButtons(WindowId),
     SetWindowChromeButtonsPosition(WindowId, Vec2d),
     SetTopmost(WindowId, bool),
+    /// Keep a top-level window above its owner without system-wide topmost status.
+    SetWindowOwner(WindowId, Option<WindowId>),
     /// `true`: drop the native maximized-state border/titlebar strip a
     /// backend would otherwise keep (Windows only; other backends ignore
     /// it) so a maximized window reads as a clean fullscreen picture
@@ -518,6 +520,7 @@ impl std::fmt::Debug for CxOsOp {
             Self::ShowWindowButtons(..) => write!(f, "ShowWindowButtons"),
             Self::SetWindowChromeButtonsPosition(..) => write!(f, "SetWindowChromeButtonsPosition"),
             Self::SetTopmost(..) => write!(f, "SetTopmost"),
+            Self::SetWindowOwner(..) => write!(f, "SetWindowOwner"),
             Self::SetChromelessWhenMaximized(..) => write!(f, "SetChromelessWhenMaximized"),
             Self::SetWindowTitle(..) => write!(f, "SetWindowTitle"),
             Self::SetWindowVisuals(..) => write!(f, "SetWindowVisuals"),

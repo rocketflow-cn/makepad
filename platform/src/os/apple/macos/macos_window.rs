@@ -238,6 +238,24 @@ impl MacosWindow {
         }
     }
 
+    pub fn set_owner(&mut self, owner: ObjcId) {
+        // SAFETY: the backend supplies live NSWindow objects on the AppKit thread.
+        // AppKit retains child windows while attached; no raw pointer is stored here.
+        unsafe {
+            let previous: ObjcId = msg_send![self.window, parentWindow];
+            if previous == owner {
+                return;
+            }
+            if previous != nil {
+                let () = msg_send![previous, removeChildWindow: self.window];
+            }
+            if owner != nil && owner != self.window {
+                // NSWindowAbove = 1: relative to this owner, at the normal window level.
+                let () = msg_send![owner, addChildWindow: self.window ordered: 1i64];
+            }
+        }
+    }
+
     pub fn set_topmost(&mut self, topmost: bool) {
         let level = if topmost {
             MacosWindowLevel::Floating

@@ -1145,6 +1145,25 @@ impl Cx {
                         window.win32_window.set_chromeless_when_maximized(chromeless);
                     }
                 }
+                CxOsOp::SetWindowOwner(window_id, owner_id) => {
+                    if owner_id == Some(window_id) {
+                        continue;
+                    }
+                    let owner_hwnd = owner_id.and_then(|id| {
+                        d3d11_windows.iter().find(|w| w.window_id == id)
+                            .map(|w| w.win32_window.hwnd)
+                    });
+                    let target_exists = d3d11_windows.iter().any(|w| w.window_id == window_id);
+                    if !target_exists || (owner_id.is_some() && owner_hwnd.is_none()) {
+                        if self.defer_platform_op(CxOsOp::SetWindowOwner(window_id, owner_id)) {
+                            continue;
+                        }
+                        break;
+                    }
+                    if let Some(window) = d3d11_windows.iter_mut().find(|w| w.window_id == window_id) {
+                        window.win32_window.set_owner(owner_hwnd);
+                    }
+                }
                 CxOsOp::SetWindowTitle(window_id, title) => {
                     if let Some(window) =
                         d3d11_windows.iter_mut().find(|w| w.window_id == window_id)
