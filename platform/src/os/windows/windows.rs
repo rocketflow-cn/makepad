@@ -1126,16 +1126,15 @@ impl Cx {
                 }
                 CxOsOp::Quit => ret = EventFlow::Exit,
                 CxOsOp::SetTopmost(window_id, is_topmost) => {
-                    if d3d11_windows.len() == 0 {
-                        if self.defer_platform_op(CxOsOp::SetTopmost(window_id, is_topmost)) {
-                            continue;
-                        }
-                        break;
-                    }
                     if let Some(window) =
                         d3d11_windows.iter_mut().find(|w| w.window_id == window_id)
                     {
                         window.win32_window.set_topmost(is_topmost);
+                    } else if self.platform_ops.iter().any(|op| {
+                        matches!(op, CxOsOp::CreateWindow(pending) if *pending == window_id)
+                            || matches!(op, CxOsOp::CreatePopupWindow { window_id: pending, .. } if *pending == window_id)
+                    }) {
+                        self.defer_platform_op(CxOsOp::SetTopmost(window_id, is_topmost));
                     }
                 }
                 CxOsOp::SetChromelessWhenMaximized(window_id, chromeless) => {
@@ -1149,18 +1148,32 @@ impl Cx {
                     if owner_id == Some(window_id) {
                         continue;
                     }
+                    let target_exists = d3d11_windows.iter().any(|w| w.window_id == window_id);
                     let owner_hwnd = owner_id.and_then(|id| {
                         d3d11_windows.iter().find(|w| w.window_id == id)
                             .map(|w| w.win32_window.hwnd)
                     });
-                    let target_exists = d3d11_windows.iter().any(|w| w.window_id == window_id);
-                    if !target_exists || (owner_id.is_some() && owner_hwnd.is_none()) {
-                        if self.defer_platform_op(CxOsOp::SetWindowOwner(window_id, owner_id)) {
+                    // Only postpone ownership while a corresponding creation is queued.
+                    // Closed windows must not leave two owner ops endlessly requeuing
+                    // each other and prevent the authentic WindowClosed event delivery.
+                    let creation_pending = |id| self.platform_ops.iter().any(|op| {
+                        matches!(op, CxOsOp::CreateWindow(pending) if *pending == id)
+                            || matches!(op, CxOsOp::CreatePopupWindow { window_id: pending, .. } if *pending == id)
+                    });
+                    if !target_exists {
+                        if creation_pending(window_id) {
+                            self.defer_platform_op(CxOsOp::SetWindowOwner(window_id, owner_id));
+                        }
+                        continue;
+                    }
+                    if let Some(owner_id) = owner_id {
+                        if owner_hwnd.is_none() && creation_pending(owner_id) {
+                            self.defer_platform_op(CxOsOp::SetWindowOwner(window_id, Some(owner_id)));
                             continue;
                         }
-                        break;
                     }
                     if let Some(window) = d3d11_windows.iter_mut().find(|w| w.window_id == window_id) {
+                        // A destroyed owner cannot be attached again; clear stale ownership.
                         window.win32_window.set_owner(owner_hwnd);
                     }
                 }
