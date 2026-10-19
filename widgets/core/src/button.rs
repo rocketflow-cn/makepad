@@ -70,7 +70,7 @@ script_mod! {
             get_color: fn() {
                 let ink = self.color
                     .mix(self.color_focus, self.focus)
-                    .mix(self.color_hover, self.hover)
+                    .mix(self.color_hover, self.hover * (1.0 - self.focus))
                     .mix(self.color_down, self.down)
                     .mix(self.color_disabled, self.disabled)
                 return vec4(ink.rgb, ink.a * (1.0 - self.loading))
@@ -217,11 +217,14 @@ script_mod! {
                     color_fill_disabled = mix(self.color_disabled, self.color_2_disabled, dir)
                 }
 
-                let mut fill = color_fill
-                    .mix(color_fill_focus, self.focus)
-                    .mix(color_fill_hover, self.hover)
-                    .mix(color_fill_down, self.down)
-                    .mix(color_fill_disabled, self.disabled)
+                let mut fill = Pal.mix_color(
+                    Pal.mix_color(
+                        Pal.mix_color(
+                            Pal.mix_color(color_fill, color_fill_focus, self.focus),
+                            color_fill_hover, self.hover * (1.0 - self.focus)
+                        ), color_fill_down, self.down
+                    ), color_fill_disabled, self.disabled
+                )
 
                 if self.layer_color.x > -0.5 {
                     // The state layer composites over the fill with straight
@@ -256,11 +259,14 @@ script_mod! {
                     color_stroke_disabled = mix(self.border_color_disabled, self.border_color_2_disabled, dir)
                 }
 
-                let mut stroke = color_stroke
-                    .mix(color_stroke_focus, self.focus)
-                    .mix(color_stroke_hover, self.hover)
-                    .mix(color_stroke_down, self.down)
-                    .mix(color_stroke_disabled, self.disabled)
+                let mut stroke = Pal.mix_color(
+                    Pal.mix_color(
+                        Pal.mix_color(
+                            Pal.mix_color(color_stroke, color_stroke_focus, self.focus),
+                            color_stroke_hover, self.hover * (1.0 - self.focus)
+                        ), color_stroke_down, self.down
+                    ), color_stroke_disabled, self.disabled
+                )
 
                 if self.border_dash > 0.0 {
                     // Dashes along x + y: regular on every straight edge.

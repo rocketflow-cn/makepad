@@ -465,6 +465,15 @@ impl Cx {
         if request_ids.is_empty() {
             return;
         }
+        if let Some(path) = std::env::var_os("MAKEPAD_SCREENSHOT_PATH") {
+            let path = std::path::PathBuf::from(path);
+            let result = path.parent().filter(|parent| !parent.as_os_str().is_empty())
+                .map_or(Ok(()), std::fs::create_dir_all)
+                .and_then(|()| std::fs::write(&path, &png));
+            if let Err(error) = result {
+                crate::error!("failed to write screenshot {}: {}", path.display(), error);
+            }
+        }
         // `--remote` grabs are answered on the requesting HTTP thread.
         let request_ids = crate::remote::deliver_grabs(
             request_ids,

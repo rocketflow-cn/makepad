@@ -1301,7 +1301,7 @@ impl Window {
         }
     }
 
-    fn ensure_initialized(&mut self, cx: &mut Cx) {
+    fn ensure_initialized(&mut self, cx: &mut Cx) -> bool {
         // If the inputs that drive caption layout changed without a platform WindowGeomChange
         // (e.g. a live/DSL reload toggling the caption bar or changing its height), the cached
         // WindowDragQuery geometry is stale — drop it so the next hit-test recomputes.
@@ -1322,7 +1322,7 @@ impl Window {
         self.sync_system_bar_appearance(cx);
 
         if self.initialized {
-            return;
+            return false;
         }
         self.initialized = true;
 
@@ -1346,13 +1346,14 @@ impl Window {
         }
         self.screen_cap.set_window_id(self.window.window_id().id());
         self.screen_cap.start_managed_once(cx);
+        true
     }
 
     pub fn begin(&mut self, cx: &mut Cx2d) -> Redrawing {
-        self.ensure_initialized(cx);
+        let initialized = self.ensure_initialized(cx);
 
         let will_redraw = cx.will_redraw(&mut self.main_draw_list, Walk::default());
-        if !will_redraw {
+        if !initialized && !will_redraw {
             return Redrawing::no();
         }
 
@@ -1858,6 +1859,12 @@ impl Window {
 }
 
 impl WindowRef {
+    pub fn set_window_chrome_buttons_position(&self, cx: &mut Cx, position: Vec2d) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.window.handle.set_window_chrome_buttons_position(cx, position);
+        }
+    }
+
     pub fn begin_crossfade(&self, cx: &mut Cx, secs: f64, hold: bool) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.begin_crossfade(cx, secs, hold);

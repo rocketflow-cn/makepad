@@ -1310,10 +1310,18 @@ impl Cx {
             }
             MacosEvent::WindowGotFocus(window_id) => {
                 // repaint all window passes. Metal sometimes doesnt flip buffers when hidden/no focus
+                let mut needs_redraw = false;
                 for window in metal_windows.iter_mut() {
                     if let Some(main_pass_id) = self.windows[window.window_id].main_pass_id {
-                        self.repaint_pass(main_pass_id);
+                        if self.passes[main_pass_id].main_draw_list_id.is_some() {
+                            self.repaint_pass(main_pass_id);
+                        } else {
+                            needs_redraw = true;
+                        }
                     }
+                }
+                if needs_redraw {
+                    self.redraw_all();
                 }
                 self.call_event_handler(&Event::WindowGotFocus(window_id));
             }
@@ -1939,6 +1947,13 @@ impl Cx {
                         metal_windows.iter_mut().find(|w| w.window_id == window_id)
                     {
                         metal_window.cocoa_window.set_window_buttons_visible(true);
+                    }
+                }
+                CxOsOp::SetWindowChromeButtonsPosition(window_id, position) => {
+                    if let Some(window) = metal_windows.iter_mut().find(|w| w.window_id == window_id) {
+                        window.cocoa_window.set_traffic_lights_position(position);
+                        window.window_geom = window.cocoa_window.get_window_geom();
+                        self.windows[window_id].window_geom = window.window_geom.clone();
                     }
                 }
                 CxOsOp::SetTopmost(window_id, is_topmost) => {

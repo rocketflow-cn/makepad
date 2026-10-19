@@ -456,16 +456,16 @@ impl Area {
                     let x = buf[inst.instance_offset + rect_pos + 0] as f64;
                     let y = buf[inst.instance_offset + rect_pos + 1] as f64;
                     return Vec2d {
-                        x: abs.x - x,
-                        y: abs.y - y,
+                        x: abs.x - x - draw_list.draw_list_uniforms.view_shift.x as f64,
+                        y: abs.y - y - draw_list.draw_list_uniforms.view_shift.y as f64,
                     };
                 }
                 abs
             }
             Area::Rect(ra) => match live_rect_area(ra, cx) {
-                Some((_, rect_area)) => Vec2d {
-                    x: abs.x - rect_area.rect.pos.x,
-                    y: abs.y - rect_area.rect.pos.y,
+                Some((draw_list, rect_area)) => Vec2d {
+                    x: abs.x - rect_area.rect.pos.x - draw_list.draw_list_uniforms.view_shift.x as f64,
+                    y: abs.y - rect_area.rect.pos.y - draw_list.draw_list_uniforms.view_shift.y as f64,
                 },
                 None => abs,
             },
@@ -649,7 +649,27 @@ impl Area {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draw_list::DrawList;
+    use crate::draw_list::{CxRectArea, DrawList};
+
+    #[test]
+    fn abs_to_rel_applies_draw_list_view_shift_without_clipping() {
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        let draw_list = DrawList::new(&mut cx);
+        let draw_list_id = draw_list.id();
+        cx.draw_lists[draw_list_id].redraw_id = 1;
+        cx.draw_lists[draw_list_id].draw_list_uniforms.view_shift = vec2(-40.0, 25.0);
+        cx.draw_lists[draw_list_id].rect_areas.push(CxRectArea {
+            rect: rect(100.0, 200.0, 80.0, 20.0),
+            draw_clip: (dvec2(120.0, 200.0), dvec2(160.0, 220.0)),
+        });
+        let area = Area::Rect(RectArea {
+            draw_list_id,
+            rect_id: 0,
+            redraw_id: 1,
+        });
+
+        assert_eq!(area.abs_to_rel(&cx, dvec2(100.0, 235.0)), dvec2(40.0, 10.0));
+    }
 
     /// An undrawn widget keeps its last area. If its draw list was recorded again within the same redraw,
     /// that area's `redraw_id` still matches while its slot now holds a sub-list (or nothing at all).

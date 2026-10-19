@@ -23,6 +23,7 @@ pub mod log;
 mod cx;
 mod arc_string_mut;
 mod cx_api;
+mod application_screenshot;
 mod shared_bytes;
 
 pub mod action;

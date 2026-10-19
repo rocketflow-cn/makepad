@@ -2876,6 +2876,7 @@ impl CxDrawList {
 
     pub fn append_sub_list(&mut self, redraw_id: u64, sub_list_id: DrawListId) {
         // see if we need to add a new one
+        let index = self.draw_items.len();
         let children_only = self.draw_items.child_inventory_valid;
         self.draw_items.push_slot(redraw_id, 0).kind = CxDrawKind::SubList(sub_list_id);
         if children_only {
@@ -2883,33 +2884,29 @@ impl CxDrawList {
             self.draw_items.child_inventory_valid = true;
         }
         self.find_appendable_draw_shader_check.push(0);
+        if let Some(order) = self.draw_item_reorder.as_mut() {
+            order.push(index);
+        }
     }
 
     pub fn store_sub_list_last(&mut self, redraw_id: u64, sub_list_id: DrawListId) {
-        // use an empty slot if we have them to insert our subview
         let len = self.draw_items.len();
-        for i in 0..len {
-            let item = &mut self.draw_items[i];
-            if let Some(id) = item.kind.sub_list() {
-                if id == sub_list_id {
-                    item.kind = CxDrawKind::Empty;
-                    break;
-                }
+        let slot = (0..len)
+            .find(|&index| self.draw_items[index].kind.sub_list() == Some(sub_list_id))
+            .or_else(|| (0..len).find(|&index| self.draw_items[index].kind.is_empty()));
+        if let Some(index) = slot {
+            let item = &mut self.draw_items[index];
+            item.redraw_id = redraw_id;
+            item.kind = CxDrawKind::SubList(sub_list_id);
+            if let Some(order) = self.draw_item_reorder.as_mut() {
+                order.retain(|&id| id != index);
+                order.push(index);
+            } else if index + 1 != len {
+                let mut order = (0..len).filter(|&id| id != index).collect::<Vec<_>>();
+                order.push(index);
+                self.draw_item_reorder = Some(order);
             }
-        }
-        if len > 0 {
-            let item = &mut self.draw_items[len - 1];
-            if item.kind.is_empty() {
-                item.redraw_id = redraw_id;
-                item.kind = CxDrawKind::SubList(sub_list_id);
-                return;
-            }
-            if let CxDrawKind::SubList(id) = item.kind {
-                if id == sub_list_id {
-                    item.redraw_id = redraw_id;
-                    return;
-                }
-            }
+            return;
         }
         self.append_sub_list(redraw_id, sub_list_id);
     }
@@ -3007,6 +3004,22 @@ impl Cx {
 mod tests {
     use super::*;
     use crate::texture::CxTexturePool;
+
+    #[test]
+    fn alternating_last_overlays_keep_stable_storage() {
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        let parent = DrawList::new(&mut cx);
+        let a = DrawList::new(&mut cx);
+        let b = DrawList::new(&mut cx);
+        let list = &mut cx.draw_lists[parent.id()];
+        list.clear_draw_items(1, 1, 1);
+        for _ in 0..100 {
+            list.store_sub_list_last(1, a.id());
+            list.store_sub_list_last(1, b.id());
+        }
+        assert_eq!(list.draw_items.len(), 2);
+        assert_eq!(list.draw_item_reorder.as_ref().unwrap(), &vec![0, 1]);
+    }
 
     #[test]
     fn texture_slot_batching_comparison_is_symmetric() {

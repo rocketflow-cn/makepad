@@ -3719,6 +3719,7 @@ export class WasmWebBrowser extends WasmBridge {
         this.handlers.on_keydown = e => {
             this.resume_audio_from_gesture();
             let code = e.keyCode;
+            if (is_composing || e.isComposing) { return; }
 
             //if (code == 91) {firefox_logo_key = true; e.preventDefault();}
             if (code == 18 || code == 17 || code == 16) e.preventDefault(); // alt

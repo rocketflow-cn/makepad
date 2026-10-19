@@ -478,7 +478,7 @@ fn register_draw_text_slug(vm: &mut ScriptVm) {
                     )
                     .mix(color_focus, max(self.focus, self.focussed) * (1.0 - self.empty))
                     .mix(color_active, max(self.active, self.opened))
-                    .mix(color_hover, self.hover)
+                    .mix(color_hover, self.hover * (1.0 - max(self.focus, self.focussed)))
                     .mix(color_down, self.down)
                     .mix(color_drag, self.drag)
                     .mix(color_pressed, self.pressed)

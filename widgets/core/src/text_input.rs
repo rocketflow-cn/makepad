@@ -3108,7 +3108,7 @@ impl Widget for TextInput {
                 cx.claim_finger_drag(digit_id);
                 self.reset_blink_timer(cx);
                 self.set_key_focus(cx);
-                let rel = abs - self.text_area.rect(cx).pos;
+                let rel = self.text_area.abs_to_rel(cx, abs);
                 let Ok(cursor) =
                     self.point_in_lpxs_to_cursor(Point::new(rel.x as f32, rel.y as f32))
                 else {
@@ -3188,7 +3188,7 @@ impl Widget for TextInput {
                 self.preserved_selection_cursor = None;
 
                 // Select word at long press position
-                let rel = lp.abs - self.text_area.rect(cx).pos;
+                let rel = self.text_area.abs_to_rel(cx, lp.abs);
                 if let Ok(cursor) =
                     self.point_in_lpxs_to_cursor(Point::new(rel.x as f32, rel.y as f32))
                 {
@@ -3228,7 +3228,7 @@ impl Widget for TextInput {
                 self.preserved_selection_cursor = None;
                 self.reset_blink_timer(cx);
                 self.set_key_focus(cx);
-                let rel = abs - self.text_area.rect(cx).pos;
+                let rel = self.text_area.abs_to_rel(cx, abs);
                 let Ok(cursor) =
                     self.point_in_lpxs_to_cursor(Point::new(rel.x as f32, rel.y as f32))
                 else {
@@ -3241,6 +3241,12 @@ impl Widget for TextInput {
                     3 => self.select_all(cx),
                     _ => {}
                 }
+            }
+            Hit::KeyDown(KeyEvent {
+                key_code: KeyCode::ReturnKey | KeyCode::NumpadEnter,
+                ..
+            }) if self.has_composition() => {
+                self.reset_blink_timer(cx);
             }
             Hit::KeyDown(KeyEvent {
                 key_code: KeyCode::ReturnKey | KeyCode::NumpadEnter,
@@ -3731,6 +3737,9 @@ impl Widget for TextInput {
                 }
             }
             Hit::ImeAction(event) => {
+                if self.has_composition() {
+                    return;
+                }
                 use crate::makepad_platform::event::ImeAction;
                 let mods = KeyModifiers::default();
                 match event.action {
