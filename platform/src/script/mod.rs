@@ -5,6 +5,8 @@ pub mod cx;
 pub mod draw;
 pub mod event;
 pub mod res;
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+mod res_package;
 pub mod script;
 pub mod std;
 pub mod timer;

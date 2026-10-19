@@ -1795,6 +1795,10 @@ impl Win32Window {
                 false,
             )
             .unwrap();
+            // MoveWindow sends WM_SIZE synchronously while the platform callback may
+            // already be running. Reentrant callbacks are skipped, so synchronize the
+            // drawing geometry again from the message loop, as restore/maximize do.
+            PostMessageW(Some(self.hwnd), WM_SIZE, WPARAM(0), LPARAM(0)).unwrap();
         }
     }
 

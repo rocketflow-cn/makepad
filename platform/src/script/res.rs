@@ -4,13 +4,21 @@ use crate::*;
 use makepad_script::id;
 use makepad_script::*;
 use std::cell::RefCell;
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+use std::cell::OnceCell;
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+use super::res_package::{read_index, resource_key};
 use std::collections::HashMap;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Read;
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+use std::io::ErrorKind;
+#[cfg(any(target_arch = "wasm32", target_os = "windows", target_os = "macos", target_os = "linux"))]
+use std::path::Path;
 #[cfg(target_arch = "wasm32")]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 #[derive(Clone, Debug)]
@@ -62,6 +70,8 @@ pub struct CxScriptHttpResource {
 
 #[derive(Default)]
 pub struct CxScriptResources {
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+    package_paths: OnceCell<HashMap<u64, String>>,
     pub resources: Rc<RefCell<Vec<CxScriptResource>>>,
     /// Per-heap path cache: (heap_key, abs_path) → that heap's LOCAL handle.
     /// Never hand one heap's cached handle to another heap (see
@@ -257,6 +267,20 @@ fn load_packaged_resource(cx: &Cx, dep_path: &str) -> Option<Rc<Vec<u8>>> {
 ))]
 fn load_packaged_resource(cx: &Cx, dep_path: &str) -> Option<Rc<Vec<u8>>> {
     let root = cx.package_root.as_deref()?;
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+    let dep_path = {
+        let paths = cx.script_data.resources.package_paths.get_or_init(|| {
+            match read_index(Path::new(root)) {
+                Ok(paths) => paths,
+                Err(error) if error.kind() == ErrorKind::NotFound => HashMap::new(),
+                Err(error) => {
+                    crate::error!("Cannot read packaged resource index: {}", error);
+                    HashMap::new()
+                }
+            }
+        });
+        paths.get(&resource_key(dep_path)).map(String::as_str).unwrap_or(dep_path)
+    };
     let full_path = format!("{}/{}", root, dep_path);
     crate::os::cx_native::read_file_cwd_or_exe_relative(&cx.package_paths, &full_path).map(Rc::new)
 }
