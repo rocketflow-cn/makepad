@@ -1473,6 +1473,13 @@ impl Win32Window {
     }
 
     pub fn set_topmost(&self, topmost: bool) {
+        // Viewport reconciliation repeats this operation for every visible window.
+        // Never activate windows here: two dialogs would otherwise repeatedly
+        // steal focus from each other and enqueue another round of focus events.
+        if self.get_is_topmost() == topmost {
+            return;
+        }
+        // SAFETY: this live HWND is accessed on its owning UI thread.
         unsafe {
             if topmost {
                 SetWindowPos(
@@ -1482,7 +1489,7 @@ impl Win32Window {
                     0,
                     0,
                     0,
-                    SWP_NOMOVE | SWP_NOSIZE,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
                 )
                 .unwrap();
             } else {
@@ -1493,7 +1500,7 @@ impl Win32Window {
                     0,
                     0,
                     0,
-                    SWP_NOMOVE | SWP_NOSIZE,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
                 )
                 .unwrap();
             }
