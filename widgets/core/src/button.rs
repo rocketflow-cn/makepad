@@ -1763,6 +1763,30 @@ impl ButtonRef {
         }
     }
 
+    /// Updates the disabled-state background color at runtime.
+    pub fn set_disabled_background_color(&self, cx: &mut Cx, color: Vec4) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.draw_bg.draw_vars.set_uniform(
+                cx,
+                live_id!(color_disabled),
+                &[color.x, color.y, color.z, color.w],
+            );
+            inner.draw_bg.redraw(cx);
+        }
+    }
+
+    /// Updates the disabled-state label color at runtime.
+    pub fn set_disabled_text_color(&self, cx: &mut Cx, color: Vec4) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.draw_text.draw_vars.set_uniform(
+                cx,
+                live_id!(color_disabled),
+                &[color.x, color.y, color.z, color.w],
+            );
+            inner.draw_text.redraw(cx);
+        }
+    }
+
     /// See [`Button::clicked()`].
     pub fn clicked(&self, actions: &Actions) -> bool {
         self.borrow().is_some_and(|inner| inner.clicked(actions))
