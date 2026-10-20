@@ -1151,9 +1151,11 @@ pub struct Button {
 
     #[redraw]
     #[live]
-    draw_bg: DrawQuad,
+    pub draw_bg: DrawQuad,
     #[live]
-    draw_text: DrawText,
+    /// Public so hosts can update theme-driven label colors without rebuilding
+    /// the button's live object.
+    pub draw_text: DrawText,
     #[live]
     /// Public so a host can recolour the mark directly. Going through a
     /// script apply instead re-applies the whole object and drops the loaded
@@ -1739,6 +1741,28 @@ impl Button {
 }
 
 impl ButtonRef {
+    /// Updates the button label color at runtime and redraws the button.
+    pub fn set_text_color(&self, cx: &mut Cx, color: Vec4) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.draw_text.color = color;
+            inner.redraw(cx);
+        }
+    }
+
+    /// Updates the base background color at runtime. The button shader keeps
+    /// hover/pressed variants intact; callers can update those through the
+    /// corresponding draw variables when needed.
+    pub fn set_background_color(&self, cx: &mut Cx, color: Vec4) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.draw_bg.draw_vars.set_uniform(
+                cx,
+                live_id!(color),
+                &[color.x, color.y, color.z, color.w],
+            );
+            inner.draw_bg.redraw(cx);
+        }
+    }
+
     /// See [`Button::clicked()`].
     pub fn clicked(&self, actions: &Actions) -> bool {
         self.borrow().is_some_and(|inner| inner.clicked(actions))
