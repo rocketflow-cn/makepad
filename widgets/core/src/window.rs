@@ -317,8 +317,6 @@ pub struct Window {
     #[live]
     center_caption_label: bool,
     #[rust]
-    caption_has_content: Option<bool>,
-    #[rust]
     hosted_caption_content: Option<bool>,
     /// Whether this widget should create its native surface during initial
     /// construction. The stable window id and widget tree still exist when
@@ -487,7 +485,6 @@ impl ScriptHook for Window {
         _scope: &mut Scope,
         _value: ScriptValue,
     ) {
-        self.caption_has_content = None;
         if !self.create_on_start && !self.initial_create_policy_applied {
             apply_initial_create_policy(vm.cx_mut(), &self.window.handle, false);
             self.initial_create_policy_applied = true;
@@ -904,22 +901,19 @@ impl SsaaStack {
 }
 
 impl Window {
-    fn caption_contains_app_content(&mut self, cx: &mut Cx) -> bool {
-        if let Some(content) = self.caption_has_content {
-            return content;
-        }
-        // Preserve the actual app widgets and their identities/handlers. A
-        // stock title-only caption does not need a second row inside a WM tile.
-        let label_content = self.view(cx, ids!(caption_label)).borrow().is_some_and(|view| {
+    fn caption_contains_app_content(&self) -> bool {
+        // App controls can move into or out of the caption at runtime. Inspect
+        // its current direct children rather than caching a template-time result.
+        let caption_bar = self.view.child(id!(caption_bar));
+        let caption_label = caption_bar.child(id!(caption_label));
+        let label_content = caption_label.borrow::<View>().is_some_and(|view| {
             view.children.iter().any(|(id, _)| !matches!(*id, id!(caption_icon) | id!(label)))
         });
-        let bar_content = self.view(cx, ids!(caption_bar)).borrow().is_some_and(|view| {
+        let bar_content = caption_bar.borrow::<View>().is_some_and(|view| {
             view.children.iter().any(|(id, _)| !matches!(*id,
                 id!(caption_label) | id!(voice_wave) | id!(windows_buttons) | id!(web_fullscreen)))
         });
-        let content = label_content || bar_content;
-        self.caption_has_content = Some(content);
-        content
+        label_content || bar_content
     }
 
     fn close_after_recording(&mut self, cx: &mut Cx) {
@@ -949,7 +943,7 @@ impl Window {
     }
 
     fn sync_caption_bar_state(&mut self, cx: &mut Cx) {
-        let has_content = self.caption_contains_app_content(cx);
+        let has_content = self.caption_contains_app_content();
         if cx.in_makepad_studio() {
             // The WM allows app-owned caption controls as a toolbar inside
             // its tile. Other hosts retain their existing caption policy.
@@ -1215,7 +1209,7 @@ impl Window {
             return;
         }
         // App toolbars own their layout, including padding supplied by a theme.
-        if self.caption_contains_app_content(cx) {
+        if self.caption_contains_app_content() {
             return;
         }
         let bar_area = caption_bar.area();
@@ -1887,7 +1881,6 @@ impl WindowRef {
             let changed = inner.drag_region.is_some() != region.is_some();
             inner.drag_region = region;
             if changed {
-                inner.caption_has_content = None;
                 inner.drag_query_cache = None;
                 inner.sync_caption_bar_state(cx);
                 inner.redraw(cx);
