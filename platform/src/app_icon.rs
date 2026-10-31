@@ -9,9 +9,10 @@ const MAX_ICON_DIMENSION: usize = 1024;
 const MAX_ICON_PIXELS: usize = MAX_ICON_DIMENSION * MAX_ICON_DIMENSION;
 
 pub fn window_icon() -> WindowIcon {
-    // When a packaged app bundle is running, skip the runtime override
-    // so the app bundle's icon doesn't get changed.
-    if crate::app_meta::package_dir().is_some() {
+    // Packaged apps keep their bundle icon unless a macOS app explicitly
+    // opts into using its runtime PNG icon.
+    let packaged = crate::app_meta::package_dir().is_some();
+    if packaged && !(cfg!(target_os = "macos") && crate::app_meta::icon_override_bundle()) {
         return WindowIcon {
             name: None,
             buffers: Vec::new(),
@@ -19,9 +20,11 @@ pub fn window_icon() -> WindowIcon {
     }
     // Per slot: the app's own icon file (MAKEPAD_APP_ICON_*, captured by
     // `app_main!` in the app crate) → the one found in the workspace's
-    // `resources/` when platform was built.
+    // `resources/` when platform was built. Packaged overrides only use
+    // the app's files, so missing resources preserve its bundle icon.
     let slot = |slot: usize, found: &'static [u8], scale: u32| match crate::app_meta::icon_path(slot) {
         Some(path) => decode_png(&std::fs::read(path).unwrap_or_default(), scale),
+        None if packaged => None,
         None => decode_png(found, scale),
     };
     let icon32 = slot(0, CUSTOM_ICON_PNG_32, 1);
@@ -73,7 +76,14 @@ pub fn window_icon() -> WindowIcon {
         };
     }
 
-    builtin_makepad_icon()
+    if packaged {
+        WindowIcon {
+            name: None,
+            buffers: Vec::new(),
+        }
+    } else {
+        builtin_makepad_icon()
+    }
 }
 
 fn decode_png(png: &[u8], scale: u32) -> Option<WindowIconBuffer> {

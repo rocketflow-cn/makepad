@@ -1,6 +1,7 @@
 //! What one app's build says about that app: the package directory of a
 //! packaged build (`MAKEPAD_PACKAGE_DIR`), its window icons
-//! (`MAKEPAD_APP_ICON_*`) and, on macOS, its bundle name and identifier
+//! (`MAKEPAD_APP_ICON_*`), optional macOS bundle icon override
+//! (`MAKEPAD_APP_ICON_OVERRIDE_BUNDLE=1`) and its bundle name and identifier
 //! (`MAKEPAD_BUNDLE_NAME` / `MAKEPAD_BUNDLE_IDENTIFIER`).
 //!
 //! These are read at compile time, but in the APP's crate, not in this one:
@@ -23,6 +24,9 @@ pub struct AppBuildMeta {
     /// that replace the ones platform's build script found in the
     /// workspace's `resources/`. Read when the first window opens.
     pub icon_paths: [Option<&'static str>; 6],
+    /// `MAKEPAD_APP_ICON_OVERRIDE_BUNDLE=1`: on macOS, use the app's PNG
+    /// icon files even in a packaged build. Missing icons keep the bundle icon.
+    pub icon_override_bundle: bool,
 }
 
 static APP_BUILD_META: OnceLock<AppBuildMeta> = OnceLock::new();
@@ -45,6 +49,11 @@ pub(crate) fn icon_path(slot: usize) -> Option<&'static str> {
     APP_BUILD_META.get().and_then(|meta| meta.icon_paths.get(slot).copied().flatten())
 }
 
+#[allow(dead_code)]
+pub(crate) fn icon_override_bundle() -> bool {
+    APP_BUILD_META.get().is_some_and(|meta| meta.icon_override_bundle)
+}
+
 /// The app crate's build inputs, as an [`AppBuildMeta`] expression.
 #[doc(hidden)]
 #[macro_export]
@@ -60,6 +69,7 @@ macro_rules! _app_build_meta {
                 option_env!("MAKEPAD_APP_ICON_512"),
                 option_env!("MAKEPAD_APP_ICON_1024"),
             ],
+            icon_override_bundle: matches!(option_env!("MAKEPAD_APP_ICON_OVERRIDE_BUNDLE"), Some("1")),
         }
     };
 }
