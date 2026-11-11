@@ -13,6 +13,7 @@ use {
             *,
         },
         game_input::*,
+        gpu_texture::with_media_d3d11_lock,
         makepad_live_id::*,
         makepad_math::*,
         os::{
@@ -820,6 +821,10 @@ impl Cx {
         };
         self.compute_pass_repaint_order(&mut passes_todo);
         self.repaint_id += 1;
+        // Observe finished GPU work before this repaint collects retired buffers.
+        // Stable textures need no explicit release, so rendering must advance
+        // completion itself. Poll once per repaint, outside recursive draw lists.
+        with_media_d3d11_lock(|| self.poll_texture_lifetimes());
         // ONE timestamp for the whole frame: the flip this beat is aimed at, or
         // wall-now for an unscoped tick. It used to be sampled per pass, so an
         // offscreen pass and the window pass that consumed it were stamped

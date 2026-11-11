@@ -149,14 +149,20 @@ impl Cx {
             self.publications.set_envelope(allowance / 4);
             crate::log!("retained-upload budgets: adapter_bytes={} process_allowance={} allocation_limit={} source={}", reported, self.memory_budget(), allowance / 4, if reported != 0 { "DXGI_adapter_budget" } else { "process_allowance_fallback" });
         }
-        self.draw_lists.1.allocations.collect_for_frame(
-            self.repaint_id,
-            self.textures
-                .1
-                .serials
-                .completed
-                .load(std::sync::atomic::Ordering::Acquire),
-        );
+        let completed = self
+            .textures
+            .1
+            .serials
+            .completed
+            .load(std::sync::atomic::Ordering::Acquire);
+        self.draw_lists
+            .1
+            .allocations
+            .collect_for_frame(self.repaint_id, completed);
+        self.draw_lists
+            .1
+            .allocations
+            .collect_backlog(self.repaint_id, completed, 8);
         let _phase = crate::thread::ui_hang::ui_phase_detail(
             crate::thread::UiPhase::DrawList,
             draw_list_id.index() as u32,
@@ -297,24 +303,10 @@ impl Cx {
                             || draw_item.instances.as_ref().map_or(0, |v| v.len()),
                             |p| p.float_len(),
                         );
-                        let replaces =
-                            draw_item
-                                .retained_instances
-                                .as_ref()
-                                .is_none_or(|publication| {
-                                    draw_item.os.inst_vbuf.retained_replaces(publication)
-                                });
-                        let charge = if replaces {
-                            let capacity = if draw_item.retained_instances.is_some() {
-                                slots.next_power_of_two().max(64) * 4
-                            } else {
-                                slots * 4
-                            };
-                            let charge = upload_budget.allocations.reserve_visible(capacity);
-                            Some(charge)
-                        } else {
-                            None
-                        };
+                        let replaces = draw_item.retained_instances.as_ref().map_or_else(
+                            || draw_item.os.inst_vbuf.dynamic_replaces(slots),
+                            |publication| draw_item.os.inst_vbuf.retained_replaces(publication),
+                        );
                         // update the instance buffer data; what the copy costs
                         // feeds the producers' pacing (contract §8), recorded
                         // at the pass's end.
@@ -338,8 +330,16 @@ impl Cx {
                             );
                             slots * 4
                         };
-                        if let Some(charge) = charge {
-                            draw_item.os.inst_vbuf.charge = Some(charge);
+                        let buffer = &mut draw_item.os.inst_vbuf;
+                        if buffer.buffer.is_none() {
+                            // Empty uploads and failed allocations own no backing.
+                            buffer.charge = None;
+                        } else if replaces {
+                            // Charge physical capacity once, including a new buffer
+                            // whose Map failed. Reusing it must preserve its lease.
+                            buffer.charge = Some(
+                                upload_budget.allocations.reserve_visible(buffer.last_size * 4),
+                            );
                         }
                         draw_item.instance_upload_pending = false;
                         draw_call.instance_dirty = false;
@@ -2775,6 +2775,12 @@ pub struct D3d11Buffer {
 }
 
 impl D3d11Buffer {
+    fn dynamic_replaces(&self, len_slots: usize) -> bool {
+        self.buffer.is_none()
+            || self.retained_publication.is_some()
+            || self.last_size != len_slots
+    }
+
     fn retained_replaces(
         &self,
         publication: &crate::retained_instances::RetainedInstances,
@@ -2896,7 +2902,7 @@ impl D3d11Buffer {
         }
         // Keep original churn behavior (replace when size changes), but avoid
         // leaking the old COM buffer by creating into a temporary out variable.
-        if self.buffer.is_none() || self.last_size != len_slots {
+        if self.dynamic_replaces(len_slots) {
             let mut exact_desc = *buffer_desc;
             exact_desc.ByteWidth = (len_slots * 4) as u32;
             let mut new_buffer = None;
