@@ -288,6 +288,39 @@ impl MacosWindow {
             && self.macos_config.becomes_key_only_if_needed
     }
 
+    /// Order the initialized window front after its rendering layer is installed.
+    pub(crate) fn show(&mut self, is_fullscreen: bool) {
+        // SAFETY: Called on the AppKit main thread after `init`; the window and
+        // view are owned by this MacosWindow for the duration of these messages.
+        unsafe {
+            // MAKEPAD_HIDE_WINDOWS=1: never order the window onto the
+            // screen — GPU eval/test runs render their offscreen passes on
+            // real Metal without flashing a window (the occlusion gate only
+            // skips the WINDOW pass's present; child passes still render).
+            if std::env::var_os("MAKEPAD_HIDE_WINDOWS").is_none() {
+                // A no-focus process (`--remote`, MAKEPAD_NO_FOCUS) shows the
+                // window without making it key or activating the app —
+                // see `macos_app::focus_allowed`.
+                if self.is_nonactivating_panel() || !focus_allowed() {
+                    let () = msg_send![self.window, orderFront: nil];
+                } else {
+                    let () = msg_send![self.window, makeKeyAndOrderFront: nil];
+                    // `--focus`: bring the app to the front as its window
+                    // opens. A binary launched from a terminal or by an agent
+                    // otherwise stays behind the launcher.
+                    if std::env::args().any(|arg| arg == "--focus") {
+                        let ns_app: ObjcId = msg_send![class!(NSApplication), sharedApplication];
+                        let () = msg_send![ns_app, activateIgnoringOtherApps: YES];
+                    }
+                }
+            }
+            crate::startup_trace("NSWindow ordered front");
+            if is_fullscreen {
+                self.maximize();
+            }
+        }
+    }
+
     // complete window initialization with pointers to self
     pub fn init(
         &mut self,
@@ -376,29 +409,6 @@ impl MacosWindow {
 
             let () = msg_send![self.window, setContentView: self.view];
             let () = msg_send![self.window, makeFirstResponder: self.view];
-            // MAKEPAD_HIDE_WINDOWS=1: never order the window onto the
-            // screen — GPU eval/test runs render their offscreen passes on
-            // real Metal without flashing a window (the occlusion gate only
-            // skips the WINDOW pass's present; child passes still render).
-            if std::env::var_os("MAKEPAD_HIDE_WINDOWS").is_none() {
-                // A no-focus process (`--remote`, MAKEPAD_NO_FOCUS) shows the
-                // window without making it key or activating the app —
-                // see `macos_app::focus_allowed`.
-                if self.is_nonactivating_panel() || !focus_allowed() {
-                    let () = msg_send![self.window, orderFront: nil];
-                } else {
-                    let () = msg_send![self.window, makeKeyAndOrderFront: nil];
-                    // `--focus`: bring the app to the front as its window
-                    // opens. A binary launched from a terminal or by an agent
-                    // otherwise stays behind the launcher.
-                    if std::env::args().any(|arg| arg == "--focus") {
-                        let ns_app: ObjcId = msg_send![class!(NSApplication), sharedApplication];
-                        let () = msg_send![ns_app, activateIgnoringOtherApps: YES];
-                    }
-                }
-            }
-            crate::startup_trace("NSWindow ordered front");
-
             let rect = NSRect {
                 origin: NSPoint { x: 0., y: 0. },
                 size: ns_size,
@@ -431,10 +441,6 @@ impl MacosWindow {
             // We need AppKit's own layout of the traffic lights
             // from before fullscreen or a zoom can change it.
             self.capture_default_window_buttons();
-            if is_fullscreen {
-                self.maximize();
-            }
-
             Self::set_application_icon();
 
             let () = msg_send![pool, drain];

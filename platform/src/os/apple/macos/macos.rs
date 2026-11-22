@@ -1836,7 +1836,32 @@ impl Cx {
                     let layer_opaque = if visuals.transparent { NO } else { YES };
                     let layer_alpha = if visuals.transparent { 0.0 } else { 1.0 };
                     let () = unsafe { msg_send![metal_window.ca_layer, setOpaque: layer_opaque] };
-                    set_metal_layer_background_color(metal_window.ca_layer, layer_alpha);
+                    // A window can be created before its first draw assigns the main
+                    // pass. In that case retain Metal's existing black fallback rather
+                    // than exposing AppKit's default white backing before the first frame.
+                    let color = window
+                        .main_pass_id
+                        .map(|pass_id| self.passes[pass_id].clear_color)
+                        .unwrap_or(vec4(0.0, 0.0, 0.0, 1.0));
+                    // SAFETY: The NSWindow and CAMetalLayer are initialized and owned
+                    // by metal_window on the AppKit main thread. AppKit/Core Animation
+                    // retain their colors; balance only our CGColor create reference.
+                    unsafe {
+                        let background: ObjcId = msg_send![class!(NSColor),
+                            colorWithSRGBRed: color.x as f64
+                            green: color.y as f64 blue: color.z as f64 alpha: layer_alpha];
+                        let () = msg_send![metal_window.cocoa_window.window,
+                            setBackgroundColor: background];
+                        let background = CGColorCreateGenericRGB(
+                            color.x as f64,
+                            color.y as f64,
+                            color.z as f64,
+                            layer_alpha,
+                        );
+                        let () = msg_send![metal_window.ca_layer, setBackgroundColor: background];
+                        CFRelease(background as *const std::ffi::c_void);
+                    }
+                    metal_window.cocoa_window.show(window.is_fullscreen);
                     window.window_geom = metal_window.window_geom.clone();
                     metal_windows.push(metal_window);
                     window.is_created = true;
